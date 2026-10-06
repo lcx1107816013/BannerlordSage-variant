@@ -6,6 +6,24 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
+> ⚠️ **This is a VARIANT (an unofficial fork), not the upstream original.**
+>
+> Upstream: [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage) (MIT).
+> This repository modifies it; **see [`NOTICE`](./NOTICE)** for what changed and why.
+>
+> **We claim no affiliation with, or endorsement by, the upstream author.**
+> The upstream copyright and license text are preserved in
+> [`LICENSE`](./LICENSE) (see the "Upstream notice" section).
+>
+> Main changes relative to upstream (details in `NOTICE`):
+> - Tool surface narrowed to **24 tools** (upstream had 16 files under `src/tools/`
+>   that were **never registered**; their imports were removed)
+> - Fixed **Vortex symlink** handling that made `bannerlord_doctor` report
+>   false positives (**39 → 0**; DLL count 1 → 130)
+> - Added `.bak` rules to `.gitignore`
+>
+> ★ The upstream `origin` remote is **kept**, so upstream updates can still be followed.
+
 An MCP server for **Mount & Blade II: Bannerlord** that provides source code search and data browsing.
 
 It reads your local Bannerlord installation, imports XML, decompiles official DLLs, builds a SQLite index, and exposes MCP tools for AI coding agents. Use cases:

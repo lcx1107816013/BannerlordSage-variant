@@ -7,6 +7,21 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
+> ⚠️ **这是「变种」（非官方分支），不是上游原版**
+>
+> 上游：[`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage)（MIT）。
+> 本仓库在上游基础上做了改动，**改动清单与理由见 [`NOTICE`](./NOTICE)**。
+>
+> **我们不声称与上游有任何隶属或背书关系**；上游版权与许可原文保留在
+> [`LICENSE`](./LICENSE)（含「Upstream notice」段）。
+>
+> 相对上游的主要改动（详情见 `NOTICE`）：
+> - 工具面收敛为 **24 个**（上游 `src/tools/` 里有 16 个**从未被注册**的文件，本次移除了它们的 import）
+> - 修 **Vortex 符号链接**导致的 `bannerlord_doctor` 假阳性（**39 → 0**；DLL 数 1 → 130）
+> - 补 `.gitignore` 的 `.bak` 规则
+>
+> ★ 本仓库**保留上游 `origin` remote**，以便继续跟进上游更新。
+
 一个提供《骑马与砍杀2：霸主》源代码搜索和数据浏览功能的 MCP 服务器。
 
 它读取你本机的 Bannerlord 安装目录，导入 XML，反编译官方 DLL，建立 SQLite 索引，并通过 MCP 工具暴露给 AI coding agent 使用。适用场景：
