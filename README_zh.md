@@ -54,12 +54,8 @@ BannerlordSage 共提供 **37 个工具**，分两个入口：
 
 | 工具 | 功能说明 |
 |------|----------|
-| `project_memory_add` | 存一条项目记忆 |
-| `project_memory_capture_session` | 一次性保存本轮会话的摘要、决策、踩坑、偏好、TODO 和备注 |
-| `project_memory_search` | 回答项目历史问题前先查项目记忆 |
-| `project_memory_recent` | 查看最近的项目记忆 |
-| `project_memory_wakeup` | 会话开始时加载关键记忆 |
-| `project_memory_invalidate` | 将旧记忆标记为失效 |
+| `project_memory_read` | 读记忆：`action=search`（全文检索）、`recent`（最近条目）、`wakeup`（会话开始加载高优先级记忆） |
+| `project_memory_write` | 写记忆：`action=add`（存一条）、`capture_session`（批量保存会话结论）、`invalidate`（标记失效） |
 
 ### 官方源码与 XML
 
@@ -85,16 +81,9 @@ BannerlordSage 共提供 **37 个工具**，分两个入口：
 
 | 工具 | 功能说明 |
 |------|----------|
-| `trace_troop_tree` | 查询某个兵种的完整升级路线 |
-| `get_item_stats` | 查询武器、装备或锻造部件的详细属性 |
-| `get_hero_profile` | 查询某个英雄的技能、特质和背景信息 |
-| `get_clan_summary` | 查询某个家族或派系的成员、势力和关系 |
-| `get_kingdom_summary` | 查询某个王国的领土、政策和当前状态 |
-| `get_culture_summary` | 查询某个文化的特色单位、加成和风格 |
-| `get_settlement_summary` | 查询城镇、村庄或城堡的信息 |
-| `get_skill_data` | 查询某个技能的属性、加成和相关 perk |
-| `get_policy_summary` | 查询某条王国政策的效果、条件和交叉引用 |
-| `get_perk_data` | 查询某个 perk 的所属技能树、配对 perk 和角色加成 |
+| `get_entity` | 按 id 查一个玩法实体。`kind` 取值：`clan`、`culture`、`hero`、`item`、`kingdom`、`perk`、`policy`、`settlement`、`skill`、`troop` |
+
+示例：`get_entity(kind="troop", id="vlandian_recruit")` 返回兵种升级树；`get_entity(kind="item", id="saddle_horse")` 返回物品属性。
 
 ### 本地 Mod 源码
 
@@ -132,7 +121,7 @@ BannerlordSage 共提供 **37 个工具**，分两个入口：
 3. `resolve_localization` 解析 token
 
 **已知游戏 ID，直接查：**
-- 直接调用对应的结构化查询工具，如 `get_item_stats`、`trace_troop_tree`、`get_hero_profile` 等
+- 用 `get_entity` 并选对 `kind`：`get_item_stats` → `get_entity(kind="item")`，`trace_troop_tree` → `get_entity(kind="troop")`，`get_hero_profile` → `get_entity(kind="hero")`
 
 **读本地 Mod 源码：**
 1. `mod_source_status` 确认工作区
@@ -140,20 +129,20 @@ BannerlordSage 共提供 **37 个工具**，分两个入口：
 3. `read_mod_file` / `read_mod_type` 读取详情
 
 **带项目记忆地继续工作：**
-1. `project_memory_wakeup` 先加载关键上下文
-2. `project_memory_search` 确认以前是否已有类似决策、踩坑或偏好
-3. `project_memory_capture_session` 在任务结束前写入本轮值得保留的结论
+1. `project_memory_read(action="wakeup")` 先加载关键上下文
+2. `project_memory_read(action="search")` 确认以前是否已有类似决策、踩坑或偏好
+3. `project_memory_write(action="capture_session")` 在任务结束前写入本轮值得保留的结论
 
 ## 日常怎么用这个 MCP
 
 当 BannerlordSage 安装好并接到你的 AI 客户端后，日常工作流可以按这个顺序走：
 
-1. 开始新任务或恢复旧任务时先调用 `project_memory_wakeup`
+1. 开始新任务或恢复旧任务时先调用 `project_memory_read(action="wakeup")`
 2. 查官方行为时优先用 `search_source`、`read_file`、`read_csharp_type`
 3. 查你自己的 Mod 源码时优先用 `mod_source_status`、`search_mod_source`、`read_mod_file`、`read_mod_type`
-4. 已知游戏内 ID 时直接用结构化查询工具
-5. 涉及“之前怎么定的”时先调用 `project_memory_search`
-6. 任务快结束时调用 `project_memory_capture_session`
+4. 已知游戏内 ID 时直接用 `get_entity`
+5. 涉及“之前怎么定的”时先调用 `project_memory_read(action="search")`
+6. 任务快结束时调用 `project_memory_write(action="capture_session")`
 
 ## 项目记忆工作流
 
@@ -161,11 +150,11 @@ BannerlordSage 共提供 **37 个工具**，分两个入口：
 
 默认规则：
 
-- 恢复任务时先 `project_memory_wakeup`
-- 涉及项目历史时先 `project_memory_search`
+- 恢复任务时先 `project_memory_read(action="wakeup")`
+- 涉及项目历史时先 `project_memory_read(action="search")`
 - 只存以后还会有用的结论
-- 任务接近结束时优先用 `project_memory_capture_session`
-- 旧结论失效时及时 `project_memory_invalidate`
+- 任务接近结束时优先用 `project_memory_write(action="capture_session")`
+- 旧结论失效时及时 `project_memory_write(action="invalidate")`
 
 ## 安装
 

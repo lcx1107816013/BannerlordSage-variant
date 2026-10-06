@@ -8,25 +8,12 @@ import { bannerlordDoctor } from './tools/bannerlord-doctor'
 import { createModWorkspace } from './tools/create-mod-workspace'
 import { generateHarmonyPatch } from './tools/generate-harmony-patch'
 import { generateXsltPatch } from './tools/generate-xslt-patch'
-import { getClanSummary } from './tools/get-clan-summary'
-import { getCultureSummary } from './tools/get-culture-summary'
-import { getHeroProfile } from './tools/get-hero-profile'
-import { getItemStats } from './tools/get-item-stats'
-import { getKingdomSummary } from './tools/get-kingdom-summary'
-import { getPerkData } from './tools/get-perk-data'
-import { getPolicySummary } from './tools/get-policy-summary'
-import { getSettlementSummary } from './tools/get-settlement-summary'
-import { getSkillData } from './tools/get-skill-data'
+import { getEntity } from './tools/get-entity'
 import { indexModSource } from './tools/index-mod-source'
 import { listDirectory } from './tools/list-directory'
 import { listModDirectory } from './tools/list-mod-directory'
 import { modSourceStatus } from './tools/mod-source-status'
-import { projectMemoryAdd } from './tools/project-memory-add'
-import { projectMemoryCaptureSession } from './tools/project-memory-capture-session'
-import { projectMemoryInvalidate } from './tools/project-memory-invalidate'
-import { projectMemoryRecent } from './tools/project-memory-recent'
-import { projectMemorySearch } from './tools/project-memory-search'
-import { projectMemoryWakeup } from './tools/project-memory-wakeup'
+import { projectMemoryRead, projectMemoryWrite } from './tools/project-memory-rw'
 import { readCsharpType } from './tools/read-csharp-type'
 import { readFile } from './tools/read-file'
 import { readGauntletUi } from './tools/read-gauntlet-ui'
@@ -39,7 +26,6 @@ import { searchKnowledge } from './tools/search-knowledge'
 import { searchModSource } from './tools/search-mod-source'
 import { searchSource } from './tools/search-source'
 import { searchXml } from './tools/search-xml'
-import { traceTroopTree } from './tools/trace-troop-tree'
 
 const sandbox = new PathSandbox(assetsPath)
 const bannerlordToolsetMode = getBannerlordToolsetMode()
@@ -54,25 +40,12 @@ server.registerTool(
   {
     title: 'Bannerlord Doctor',
     description:
-      'Use this to scan a real Bannerlord install for module dependency problems, duplicate shared libraries, missing SubModule DLLs, and suspicious load-order declarations. It reads installed modules directly from the local game directory and emits an AI-friendly report with focused issues and a recommended load order.',
+      'Scan a real Bannerlord install for module dependency problems, duplicate libraries, missing SubModule DLLs, bad load order. Reads the live install directory, not the imported index. Returns focused issues and a recommended load order.',
     inputSchema: {
-      gameDir: z
-        .string()
-        .optional()
-        .describe('Optional Bannerlord install path. If omitted, the tool falls back to the saved setup-state game directory.'),
-      moduleId: z
-        .string()
-        .optional()
-        .describe('Optional exact module id, such as MercenaryGuild or Bannerlord.UIExtenderEx.'),
-      modulePath: z
-        .string()
-        .optional()
-        .describe('Optional absolute module directory path. Use this when duplicate ids exist or when the folder name matters more than the id.'),
-      includeOfficialDetails: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe('When true, include detailed blocks for official modules in the focused output.'),
+      gameDir: z.string().optional().describe('Install path. Defaults to saved setup state.'),
+      moduleId: z.string().optional().describe('Exact module id, e.g. MercenaryGuild.'),
+      modulePath: z.string().optional().describe('Absolute module dir; use for duplicate ids.'),
+      includeOfficialDetails: z.boolean().optional().default(false).describe('Include official module details.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -88,7 +61,7 @@ server.registerTool(
   {
     title: 'Bannerlord Index Status',
     description:
-      'Use this to inspect the current BannerlordSage runtime state, including active scopes, indexed table counts, XML parse failures, missing official DLL coverage, and the active query-first or full toolset mode.',
+      'Inspect BannerlordSage runtime state: active scopes, indexed table counts, XML parse failures, missing DLL coverage, toolset mode.',
     inputSchema: {},
     annotations: {
       readOnlyHint: true,
@@ -99,169 +72,69 @@ server.registerTool(
 )
 
 server.registerTool(
-  'project_memory_add',
+  'project_memory_write',
   {
-    title: 'Add Project Memory',
+    title: 'Write Project Memory',
     description:
-      'Use this to store a durable project memory such as a decision, pitfall, preference, todo, or session outcome. This is the BannerlordSage-native memory layer for cross-session continuity.',
+      'Write to the cross-session project memory layer. add: store one memory; capture_session: batch-store session conclusions; invalidate: mark a memory obsolete.',
     inputSchema: {
-      text: z.string().describe('The raw memory text to preserve. Prefer verbatim reasoning, decisions, and concrete findings.'),
-      workspace: z
-        .string()
-        .optional()
-        .describe('Optional project or workspace scope, such as bannerlordsage or a specific mod name. Defaults to bannerlordsage.'),
-      topic: z.string().optional().describe('Optional topic bucket, such as indexing, docs, harmony, release, or xml.'),
-      kind: z
-        .string()
-        .optional()
-        .describe('Optional memory kind such as decision, pitfall, preference, todo, session, or note.'),
-      summary: z.string().optional().describe('Optional one-line summary for quick scanning.'),
-      source: z.string().optional().describe('Optional source reference such as a file path, issue id, or session label.'),
-      tags: z.array(z.string()).optional().describe('Optional short tags for filtering and recall.'),
-      importance: z.number().optional().default(3).describe('Importance from 1 to 5. Higher values are better wake-up candidates.'),
+      action: z.enum(['add', 'capture_session', 'invalidate']).describe('add needs text; invalidate needs memoryId; capture_session batch-stores session conclusions.'),
+      text: z.string().optional().describe('Memory text (required for add). Prefer verbatim decisions and findings.'),
+      memoryId: z.string().optional().describe('Memory id (required for invalidate).'),
+      reason: z.string().optional().describe('Why the memory is obsolete.'),
+      workspace: z.string().optional().describe('Workspace scope. Defaults to bannerlordsage.'),
+      topic: z.string().optional().describe('Topic bucket, e.g. indexing, harmony, xml.'),
+      kind: z.string().optional().describe('Memory kind, e.g. decision, pitfall, preference, todo.'),
+      summary: z.string().optional().describe('One-line summary.'),
+      source: z.string().optional().describe('Source reference, e.g. file path or session label.'),
+      tags: z.array(z.string()).optional().describe('Short tags for recall.'),
+      importance: z.number().optional().describe('1-5 (default 3). Higher is a better wake-up candidate.'),
+      decisions: z.array(z.string()).optional().describe('capture_session: durable decisions.'),
+      pitfalls: z.array(z.string()).optional().describe('capture_session: confirmed bugs and traps.'),
+      preferences: z.array(z.string()).optional().describe('capture_session: stable preferences.'),
+      todos: z.array(z.string()).optional().describe('capture_session: pending follow-ups.'),
+      notes: z.array(z.string()).optional().describe('capture_session: other reusable notes.'),
+      sessionImportance: z.number().optional().describe('capture_session: 1-5 (default 3).'),
     },
     annotations: {
       readOnlyHint: false,
       openWorldHint: false,
     },
   },
-  async ({ text, workspace, topic, kind, summary, source, tags, importance }) =>
-    await projectMemoryAdd(text, workspace, topic, kind, summary, source, tags, importance),
+  async input => await projectMemoryWrite(input.action, input),
 )
 
 server.registerTool(
-  'project_memory_capture_session',
+  'project_memory_read',
   {
-    title: 'Capture Session Memory',
+    title: 'Read Project Memory',
     description:
-      'Use this near the end of a meaningful task to batch-store the durable conclusions from the session. It is the preferred write path for decisions, pitfalls, preferences, todos, and the concise session summary.',
+      'Read the cross-session project memory layer. search: full-text query, use before claiming project history; recent: newest entries; wakeup: top-priority active entries at session start.',
     inputSchema: {
-      workspace: z
-        .string()
-        .optional()
-        .describe('Optional project or workspace scope, such as bannerlordsage or a specific mod name. Defaults to bannerlordsage.'),
-      topic: z.string().optional().describe('Optional topic bucket such as memory, indexing, harmony, validation, or docs.'),
-      source: z.string().optional().describe('Optional source reference such as a file path, issue id, or session label.'),
-      summary: z.string().optional().describe('Optional concise session summary for future wake-up context.'),
-      decisions: z.array(z.string()).optional().describe('Durable design or implementation decisions from this session.'),
-      pitfalls: z.array(z.string()).optional().describe('Confirmed bugs, traps, compatibility hazards, or rejected paths worth remembering.'),
-      preferences: z.array(z.string()).optional().describe('Stable user or project preferences made explicit in this session.'),
-      todos: z.array(z.string()).optional().describe('Durable follow-up tasks or pending constraints that should survive context loss.'),
-      notes: z.array(z.string()).optional().describe('Other reusable notes from this session that do not fit the stricter categories.'),
-      sessionImportance: z.number().optional().default(3).describe('Importance from 1 to 5 for the optional session summary entry.'),
-    },
-    annotations: {
-      readOnlyHint: false,
-      openWorldHint: false,
-    },
-  },
-  async ({ workspace, topic, source, summary, decisions, pitfalls, preferences, todos, notes, sessionImportance }) =>
-    await projectMemoryCaptureSession(
-      workspace,
-      topic,
-      source,
-      summary,
-      decisions,
-      pitfalls,
-      preferences,
-      todos,
-      notes,
-      sessionImportance
-    ),
-)
-
-server.registerTool(
-  'project_memory_search',
-  {
-    title: 'Search Project Memory',
-    description:
-      'Use this before answering questions about past project decisions, preferences, pitfalls, or prior session conclusions. It searches BannerlordSage-native project memory with full-text matching and metadata filters.',
-    inputSchema: {
-      query: z.string().describe('Search text describing the past decision, issue, preference, or context you want to recall.'),
-      workspace: z.string().optional().describe('Optional workspace or project filter.'),
-      topic: z.string().optional().describe('Optional topic filter.'),
-      kind: z.string().optional().describe('Optional kind filter such as decision, pitfall, or preference.'),
-      limit: z.number().optional().default(5).describe('Maximum number of memories to return.'),
-      includeInactive: z.boolean().optional().default(false).describe('When true, include invalidated memories in the results.'),
+      action: z.enum(['search', 'recent', 'wakeup']).describe('search needs query; recent lists newest; wakeup loads top-priority active memories.'),
+      query: z.string().optional().describe('Search text (required for search).'),
+      workspace: z.string().optional().describe('Workspace or project filter.'),
+      topic: z.string().optional().describe('Topic filter, e.g. indexing, harmony, xml.'),
+      kind: z.string().optional().describe('Kind filter, e.g. decision, pitfall, preference.'),
+      limit: z.number().optional().describe('Max entries (default 5 search / 8 recent,wakeup).'),
+      includeInactive: z.boolean().optional().default(false).describe('Include invalidated memories.'),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
     },
   },
-  async ({ query, workspace, topic, kind, limit, includeInactive }) =>
-    await projectMemorySearch(query, workspace, topic, kind, limit, includeInactive),
-)
-
-server.registerTool(
-  'project_memory_recent',
-  {
-    title: 'Recent Project Memory',
-    description:
-      'Use this to review the latest stored project memories for a workspace or topic, especially when resuming work after a break.',
-    inputSchema: {
-      workspace: z.string().optional().describe('Optional workspace or project filter.'),
-      topic: z.string().optional().describe('Optional topic filter.'),
-      kind: z.string().optional().describe('Optional kind filter.'),
-      limit: z.number().optional().default(8).describe('Maximum number of memories to return.'),
-      includeInactive: z.boolean().optional().default(false).describe('When true, include invalidated memories.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ workspace, topic, kind, limit, includeInactive }) =>
-    await projectMemoryRecent(workspace, topic, kind, limit, includeInactive),
-)
-
-server.registerTool(
-  'project_memory_wakeup',
-  {
-    title: 'Project Memory Wake-up',
-    description:
-      'Use this at the start of a coding session to load the most important active project memories for a workspace, biased toward decisions, pitfalls, and preferences.',
-    inputSchema: {
-      workspace: z.string().optional().describe('Optional workspace or project filter.'),
-      limit: z.number().optional().default(8).describe('Maximum number of wake-up memories to return.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ workspace, limit }) => await projectMemoryWakeup(workspace, limit),
-)
-
-server.registerTool(
-  'project_memory_invalidate',
-  {
-    title: 'Invalidate Project Memory',
-    description:
-      'Use this when an older project memory is no longer valid because the design changed, a decision was reversed, or a previous conclusion was disproven.',
-    inputSchema: {
-      memoryId: z.string().describe('Exact memory id returned by the project memory tools.'),
-      reason: z.string().optional().describe('Optional reason explaining why the memory is no longer valid.'),
-    },
-    annotations: {
-      readOnlyHint: false,
-      openWorldHint: false,
-    },
-  },
-  async ({ memoryId, reason }) => await projectMemoryInvalidate(memoryId, reason),
+  async ({ action, query, workspace, topic, kind, limit, includeInactive }) =>
+    await projectMemoryRead(action, { query, workspace, topic, kind, limit, includeInactive }),
 )
 
 server.registerTool(
   'mod_source_status',
   {
     title: 'Local Mod Source Status',
-    description:
-      'Use this to inspect a frequently changing local Bannerlord mod source workspace. It resolves the workspace root, chooses the effective source root, refreshes the local Roslyn-backed cache if needed, and reports indexed type/member counts.',
+    description: 'Inspect a local mod source workspace: resolved source root and indexed type/member counts.',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -275,13 +148,9 @@ server.registerTool(
   'index_mod_source',
   {
     title: 'Index Local Mod Source',
-    description:
-      'Use this to build or refresh an incremental local C# index for your own Bannerlord mod source directory. It is intended for frequently edited workspaces and reindexes only changed files.',
+    description: 'Build or refresh the incremental C# index for a local mod source dir (reindexes only changed files).',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -295,16 +164,12 @@ server.registerTool(
   'search_mod_source',
   {
     title: 'Search Local Mod Source',
-    description:
-      'Use this to run ripgrep directly against your own local mod source tree instead of the imported Bannerlord decompile tree. This is the fastest way to inspect frequently changing mod code.',
+    description: 'ripgrep over your local mod source tree (not the imported decompile tree). Fastest for frequently edited mod code.',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
-      query: z.string().describe('Keyword or regex pattern to search for.'),
-      caseSensitive: z.boolean().optional().default(false).describe('When true, perform a case-sensitive search.'),
-      filePattern: z.string().optional().describe('Optional ripgrep glob such as *.cs or *Patch*.cs.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
+      query: z.string().describe('Keyword or regex.'),
+      caseSensitive: z.boolean().optional().default(false).describe('Case-sensitive search.'),
+      filePattern: z.string().optional().describe('Glob filter, e.g. *.cs or *Patch*.cs.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -319,16 +184,12 @@ server.registerTool(
   'read_mod_file',
   {
     title: 'Read Local Mod File',
-    description:
-      'Use this to read a slice from your own local mod source tree. It resolves paths relative to the effective mod source root and reads live files, so frequent edits are immediately visible.',
+    description: 'Read a line slice from your local mod source tree (live files, edits visible immediately).',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
-      path: z.string().describe('Path relative to the effective mod source root.'),
-      startLine: z.number().optional().default(0).describe('Zero-based starting line number.'),
-      lineCount: z.number().optional().default(400).describe('Maximum number of lines to return.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
+      path: z.string().describe('Path relative to source root.'),
+      startLine: z.number().optional().default(0).describe('Zero-based start line.'),
+      lineCount: z.number().optional().default(400).describe('Max lines.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -342,14 +203,10 @@ server.registerTool(
   'list_mod_directory',
   {
     title: 'List Local Mod Directory',
-    description:
-      'Use this to inspect the current local mod source tree and discover which files and subdirectories are present under your frequently edited workspace.',
+    description: 'List files and subdirs under your local mod source workspace.',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
-      path: z.string().optional().default('').describe('Directory path relative to the effective mod source root.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
+      path: z.string().optional().default('').describe('Dir relative to source root.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -363,14 +220,10 @@ server.registerTool(
   'read_mod_type',
   {
     title: 'Read Local Mod Type',
-    description:
-      'Use this when you know a class, struct, interface, or enum name from your own local mod source. The tool automatically refreshes an incremental Roslyn-backed cache when files changed, then returns the matching type definition.',
+    description: 'Read a class/struct/interface/enum definition from your local mod source (cache refreshes on change).',
     inputSchema: {
-      workspaceRoot: z
-        .string()
-        .optional()
-        .describe('Absolute path to your local mod workspace root or src directory. If omitted, the tool uses BANNERSAGE_MOD_SOURCE_DIR.'),
-      typeName: z.string().describe('Exact simple type name from your local mod source, such as SubModule or MyCampaignBehavior.'),
+      workspaceRoot: z.string().optional().describe('Workspace root or src dir. Defaults to BANNERSAGE_MOD_SOURCE_DIR.'),
+      typeName: z.string().describe('Exact type name, e.g. SubModule.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -386,50 +239,22 @@ if (bannerlordToolsetMode === 'full') {
     {
       title: 'Create Mod Workspace',
       description:
-        'Use this to scaffold a local Bannerlord mod workspace under a target parent directory. It generates a modern community-style SubModule.xml, English localization files, a compilable C# project wired against the local game install, and optional CampaignBehavior or Harmony sample code.',
+        'Scaffold a local Bannerlord mod workspace: SubModule.xml, English localization, a compilable C# project wired to the local game install, optional CampaignBehavior/Harmony samples.',
       inputSchema: {
-        workspaceRoot: z
-          .string()
-          .describe('Parent directory that will receive the generated <moduleId> folder. The tool refuses to overwrite a non-empty target module directory.'),
-        moduleId: z
-          .string()
-          .regex(/^[A-Za-z0-9_.]+$/)
-          .describe('Bannerlord module id and generated folder name, for example MercenaryGuild or MyCompany.MyMod.'),
-        moduleName: z.string().optional().describe('Human-readable module name written into SubModule.xml and README.md.'),
-        namespace: z.string().optional().describe('Optional root C# namespace. Defaults to a sanitized version of moduleId.'),
-        authors: z.string().optional().describe('Optional author string written into the generated .csproj and README.md.'),
-        version: z.string().optional().describe('Optional module version. Accepts either 1.0.0 or v1.0.0 style input.'),
-        url: z.string().optional().describe('Optional community metadata URL written into SubModule.xml.'),
-        updateInfo: z.string().optional().describe('Optional community metadata update descriptor, such as NexusMods:1234.'),
-        gameDir: z
-          .string()
-          .optional()
-          .describe('Optional Bannerlord install path. If omitted, the tool falls back to the saved setup-state game directory.'),
-        includeCampaignBehavior: z
-          .boolean()
-          .optional()
-          .default(true)
-          .describe('Generate a CampaignBehavior scaffold and wire it into the generated SubModule class.'),
-        includeHarmonyExample: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe('Generate a no-op Harmony postfix example and add a local 0Harmony reference if Bannerlord.Harmony is installed.'),
-        includeButterLib: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe('Declare Bannerlord.ButterLib as a dependency and add a project reference if the local module is installed.'),
-        includeUiExtenderEx: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe('Declare Bannerlord.UIExtenderEx as a dependency and add a project reference if the local module is installed.'),
-        includeMcm: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe('Declare Bannerlord.MBOptionScreen plus its prerequisite community libraries when those local modules are installed.'),
+        workspaceRoot: z.string().describe('Parent dir receiving the <moduleId> folder. Refuses non-empty target.'),
+        moduleId: z.string().regex(/^[A-Za-z0-9_.]+$/).describe('Module id + folder name, e.g. MercenaryGuild.'),
+        moduleName: z.string().optional().describe('Display name in SubModule.xml and README.'),
+        namespace: z.string().optional().describe('Root C# namespace. Defaults to sanitized moduleId.'),
+        authors: z.string().optional().describe('Author string for .csproj and README.'),
+        version: z.string().optional().describe('Version, 1.0.0 or v1.0.0.'),
+        url: z.string().optional().describe('Metadata URL for SubModule.xml.'),
+        updateInfo: z.string().optional().describe('Update descriptor, e.g. NexusMods:1234.'),
+        gameDir: z.string().optional().describe('Install path. Defaults to saved setup state.'),
+        includeCampaignBehavior: z.boolean().optional().default(true).describe('Generate CampaignBehavior scaffold.'),
+        includeHarmonyExample: z.boolean().optional().default(false).describe('Generate a no-op Harmony postfix example.'),
+        includeButterLib: z.boolean().optional().default(false).describe('Declare ButterLib dependency.'),
+        includeUiExtenderEx: z.boolean().optional().default(false).describe('Declare UIExtenderEx dependency.'),
+        includeMcm: z.boolean().optional().default(false).describe('Declare MBOptionScreen dependency.'),
       },
       annotations: {
         readOnlyHint: false,
@@ -444,12 +269,9 @@ server.registerTool(
   'read_csharp_type',
   {
     title: 'Read C# Type',
-    description:
-      'Use this when you already know the Bannerlord type name and need the actual decompiled definition. Prefer this over broad text search for classes, structs, interfaces, enums, or nested types because it jumps straight to the indexed declaration and returns a focused code block.',
+    description: 'Get the decompiled definition of a known Bannerlord type. Prefer over text search for classes/structs/enums.',
     inputSchema: {
-      typeName: z
-        .string()
-        .describe('Exact simple type name, for example MobileParty, Hero, CharacterObject, or an enum name.'),
+      typeName: z.string().describe('Exact type name, e.g. MobileParty or Hero.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -463,16 +285,10 @@ server.registerTool(
   'search_source',
   {
     title: 'Search Decompiled Source',
-    description:
-      'Use this when you do not yet know the exact type or method location. It runs a fast ripgrep search across the decompiled C# source tree and is best for hunting symbols, comments, string literals, XML references, or patterns before drilling into a specific file or type.',
+    description: 'ripgrep the decompiled C# source tree. Use when the exact type/method location is unknown.',
     inputSchema: {
-      query: z
-        .string()
-        .describe('Keyword or regex pattern. Keep it narrow for better results, for example CalculateSpeed or upgrade_targets.'),
-      filePattern: z
-        .string()
-        .optional()
-        .describe('Optional ripgrep glob like *.cs, *Party*.cs, or */CampaignSystem/*.cs to cut noise.'),
+      query: z.string().describe('Keyword or regex. Keep narrow, e.g. CalculateSpeed.'),
+      filePattern: z.string().optional().describe('Glob filter, e.g. *.cs or */CampaignSystem/*.cs.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -486,16 +302,13 @@ server.registerTool(
   'read_file',
   {
     title: 'Read Indexed File Slice',
-    description:
-      'Use this after search_source or search_xml when you already know the relative file path and need a contiguous slice of source or XML. Best practice is to read only the relevant region instead of the whole file to save context.',
+    description: 'Read a slice of an indexed source or XML file. Read only the relevant region to save context.',
     inputSchema: {
       path: z
         .string()
-        .describe(
-          `Path relative to dist/games/${activeGameId}/assets, such as Source/bin/Win64_Shipping_Client/TaleWorlds.CampaignSystem/Foo.cs or Xmls/Modules/Native/ModuleData/crafting_pieces.xml.`
-        ),
-      startLine: z.number().optional().default(0).describe('Zero-based starting line number.'),
-      lineCount: z.number().optional().default(400).describe('Maximum number of lines to return.'),
+        .describe(`Path relative to dist/games/${activeGameId}/assets, e.g. Xmls/Modules/Native/ModuleData/crafting_pieces.xml.`),
+      startLine: z.number().optional().default(0).describe('Zero-based start line.'),
+      lineCount: z.number().optional().default(400).describe('Max lines.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -509,14 +322,9 @@ server.registerTool(
   'list_directory',
   {
     title: 'List Indexed Directory',
-    description:
-      `Use this to explore what has been imported into dist/games/${activeGameId}/assets before deciding which file to open. It is especially useful when you know the module or source subtree but not the exact filename.`,
+    description: `Explore what has been imported into dist/games/${activeGameId}/assets before opening a file.`,
     inputSchema: {
-      path: z
-        .string()
-        .optional()
-        .default('')
-        .describe(`Directory relative to dist/games/${activeGameId}/assets. Leave empty to list the top-level imported folders.`),
+      path: z.string().optional().default('').describe('Dir relative to assets root; empty lists top level.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -530,10 +338,9 @@ server.registerTool(
   'search_xml',
   {
     title: 'Search XML Data',
-    description:
-      'Use this for fast full-text lookup across imported XML data, including ModuleData and Languages content. Prefer it when you need to discover which XML files mention an entity, token, field, or gameplay concept before opening a file or querying a specific item/troop tool.',
+    description: 'Full-text lookup across imported XML (ModuleData, Languages). Find which files mention an entity or token.',
     inputSchema: {
-      query: z.string().describe('One or more keywords. Phrase-like searches work best with 1-4 focused terms.'),
+      query: z.string().describe('1-4 focused keywords.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -548,17 +355,11 @@ server.registerTool(
   {
     title: 'Search Bannerlord Knowledge',
     description:
-      'Use this first when the user asks in natural language or Chinese to call MCP for Bannerlord knowledge, for example "调用 mcp 查一下", "我要制作一个 mod", "我要做一个功能", "怎么写补丁", "怎么做界面", or "帮我查这个类". It automatically searches official tutorials, community docs, official API symbols, and local decompiled source together, then labels official API results as reference-only when the installed game version does not match.',
+      'Natural-language entry point: searches official tutorials, community docs, API symbols and decompiled source together. When the API version does not match the installed game, official API hits are reference-only and decompiled source wins. Use for "调用 mcp 查一下"/"我要做一个 mod"/"怎么写补丁"/"帮我查这个类".',
     inputSchema: {
-      query: z
-        .string()
-        .describe('Natural-language request from the user, for example "我要做一个招募俘虏的 mod", "怎么写 SubModule", or "查 CampaignBehavior".'),
-      intent: z
-        .enum(['auto', 'make_mod', 'api', 'docs', 'source'])
-        .optional()
-        .default('auto')
-        .describe('Optional routing hint. Leave auto for normal user requests.'),
-      limit: z.number().optional().default(5).describe('Maximum result count per source.'),
+      query: z.string().describe('Natural-language request, e.g. "我要做一个招募俘虏的 mod".'),
+      intent: z.enum(['auto', 'make_mod', 'api', 'docs', 'source']).optional().default('auto').describe('Routing hint; leave auto.'),
+      limit: z.number().optional().default(5).describe('Max results per source.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -572,12 +373,11 @@ server.registerTool(
   'search_bannerlord_docs',
   {
     title: 'Search Bannerlord Modding Docs',
-    description:
-      'Use this to search the locally indexed official Bannerlord modding tutorial docs and BannerlordModding.LT community docs. Best for concepts, workflows, editor usage, asset pipelines, module structure, Gauntlet UI guides, and community modding practices before checking local code.',
+    description: 'Search official modding tutorials and BannerlordModding.LT community docs. Best for concepts, workflows, Gauntlet UI, module structure.',
     inputSchema: {
-      query: z.string().describe('Focused keywords such as Gauntlet UI, SubModule, scene editor, asset bundle, or Harmony.'),
-      source: z.enum(['all', 'official', 'community']).optional().default('all').describe('Limit results to the official tutorial docs, community docs, or both.'),
-      limit: z.number().optional().default(8).describe('Maximum number of matches to return.'),
+      query: z.string().describe('Keywords, e.g. Gauntlet UI or SubModule.'),
+      source: z.enum(['all', 'official', 'community']).optional().default('all').describe('Docs source filter.'),
+      limit: z.number().optional().default(8).describe('Max matches.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -591,16 +391,12 @@ server.registerTool(
   'search_bannerlord_api_docs',
   {
     title: 'Search Bannerlord Official API Docs',
-    description:
-      'Use this to search the locally indexed official Bannerlord API Doxygen symbols by class, method, property, enum, event, or variable. The result reports the installed game version and API version match status; when they do not match, treat the official API as historical reference and prefer local decompiled source.',
+    description: 'Search official Bannerlord API Doxygen symbols. Reports version match; prefer decompiled source when versions differ.',
     inputSchema: {
-      query: z.string().describe('Symbol or keyword such as Hero, CampaignBehavior, MobileParty, OnSessionLaunched, or MBObjectManager.'),
-      version: z.string().optional().describe('Optional official API version such as 1.3.14. If omitted, the tool tries the installed game version and falls back to the latest indexed API version.'),
-      section: z
-        .enum(['classes', 'functions', 'properties', 'events', 'enums', 'enumvalues', 'variables'])
-        .optional()
-        .describe('Optional Doxygen symbol section filter.'),
-      limit: z.number().optional().default(10).describe('Maximum number of matches to return.'),
+      query: z.string().describe('Symbol or keyword, e.g. Hero or MBObjectManager.'),
+      version: z.string().optional().describe('API version, e.g. 1.3.14. Defaults to installed game version.'),
+      section: z.enum(['classes', 'functions', 'properties', 'events', 'enums', 'enumvalues', 'variables']).optional().describe('Doxygen section filter.'),
+      limit: z.number().optional().default(10).describe('Max matches.'),
     },
     annotations: {
       readOnlyHint: true,
@@ -611,184 +407,35 @@ server.registerTool(
 )
 
 server.registerTool(
-  'trace_troop_tree',
+  'get_entity',
   {
-    title: 'Trace Troop Tree',
+    title: 'Get Gameplay Entity',
     description:
-      'Use this when you already know a troop character ID and want a focused upgrade-tree summary without manually traversing NPCCharacter XML. This reads the precomputed troop projection table, so it is faster and more reliable than reparsing XML fragments for each request.',
+      'Look up one Bannerlord gameplay entity by id from the precomputed projection tables. Prefer over reading raw XML. kind: clan, culture, hero, item, kingdom, perk, policy, settlement, skill, troop.',
     inputSchema: {
-      characterId: z.string().describe('Exact troop ID such as vlandian_recruit or imperial_infantryman.'),
+      kind: z
+        .enum(['clan', 'culture', 'hero', 'item', 'kingdom', 'perk', 'policy', 'settlement', 'skill', 'troop'])
+        .describe('Entity kind to look up.'),
+      id: z
+        .string()
+        .describe('Exact id, e.g. clan_empire_north_3, saddle_horse, lord_1_1, vlandian_recruit, town_B1.'),
     },
     annotations: {
       readOnlyHint: true,
       openWorldHint: false,
     },
   },
-  async ({ characterId }) => await traceTroopTree(characterId),
-)
-
-server.registerTool(
-  'get_item_stats',
-  {
-    title: 'Get Item Stats',
-    description:
-      'Use this when you already know an item ID or crafting-piece ID and need a condensed gameplay-facing summary. Prefer this over raw XML reading for weapons, armor, horses, and smithing parts because it reads the precomputed item projection table and formats the key stats directly.',
-    inputSchema: {
-      itemId: z.string().describe('Exact item or crafting piece ID, for example saddle_horse or sword_blade_4_t3.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ itemId }) => await getItemStats(itemId),
-)
-
-server.registerTool(
-  'get_clan_summary',
-  {
-    title: 'Get Clan Summary',
-    description:
-      'Use this when you already know a clan or faction ID from spclans.xml and want its resolved culture, owner hero, home settlement, and super-faction without manually joining multiple XML files. This reads the precomputed clan projection table and is especially useful for noble clans, minor factions, mercenaries, and bandit groups.',
-    inputSchema: {
-      clanId: z.string().describe('Exact clan or faction ID such as clan_empire_north_3, player_faction, or ghilman.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ clanId }) => await getClanSummary(clanId),
-)
-
-server.registerTool(
-  'get_policy_summary',
-  {
-    title: 'Get Policy Summary',
-    description:
-      'Use this when you know a kingdom policy ID and want the fully resolved policy text, support weights, current active kingdoms, and default cultures without manually stitching source-defined policy objects to XML kingdom and culture references. This reads the hybrid gameplay index built from both decompiled source and XML projections.',
-    inputSchema: {
-      policyId: z.string().describe('Exact policy ID such as policy_feudal_inheritance or policy_royal_privilege.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ policyId }) => await getPolicySummary(policyId),
-)
-
-server.registerTool(
-  'get_hero_profile',
-  {
-    title: 'Get Hero Profile',
-    description:
-      'Use this when you already know a hero ID and want the merged relationship and character summary without manually joining Heroes XML and NPCCharacter XML. This reads the precomputed hero projection table and joins it with indexed troop data.',
-    inputSchema: {
-      heroId: z.string().describe('Exact hero ID such as lord_1_1 or main_hero.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ heroId }) => await getHeroProfile(heroId),
-)
-
-server.registerTool(
-  'get_perk_data',
-  {
-    title: 'Get Perk Data',
-    description:
-      'Use this when you know a single-player perk ID and want its skill tree placement, paired alternative perk, role bonuses, increment types, and localized descriptions without searching the large DefaultPerks source file manually. This reads the hybrid gameplay index extracted from decompiled campaign source.',
-    inputSchema: {
-      perkId: z.string().describe('Exact perk ID such as OneHandedWrappedHandles, BowBowControl, or LeadershipFerventAttacker.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ perkId }) => await getPerkData(perkId),
-)
-
-server.registerTool(
-  'get_kingdom_summary',
-  {
-    title: 'Get Kingdom Summary',
-    description:
-      'Use this when you know a kingdom ID and want a focused summary of ruler, culture, capital/home settlement, colors, and policy counts without reparsing spkingdoms.xml. This reads the precomputed kingdom projection table.',
-    inputSchema: {
-      kingdomId: z.string().describe('Exact kingdom ID such as empire, battania, or aserai.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ kingdomId }) => await getKingdomSummary(kingdomId),
-)
-
-server.registerTool(
-  'get_culture_summary',
-  {
-    title: 'Get Culture Summary',
-    description:
-      'Use this when you already know a culture ID and want a fast summary of core culture metadata, localized description text, troop roots, and name pools. This reads the precomputed culture projection table instead of reparsing the large cultures XML file.',
-    inputSchema: {
-      cultureId: z.string().describe('Exact culture ID such as empire, battania, or khuzait.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ cultureId }) => await getCultureSummary(cultureId),
-)
-
-server.registerTool(
-  'get_settlement_summary',
-  {
-    title: 'Get Settlement Summary',
-    description:
-      'Use this when you know a settlement ID and want a fast summary of settlement type, owner faction, derived kingdom, village bindings, scenes, and prosperity/hearth values. This reads the precomputed settlement projection table instead of reparsing settlements.xml and related faction XML.',
-    inputSchema: {
-      settlementId: z.string().describe('Exact settlement ID such as town_B1, castle_EN1, or castle_village_EN1_1.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ settlementId }) => await getSettlementSummary(settlementId),
-)
-
-server.registerTool(
-  'get_skill_data',
-  {
-    title: 'Get Skill Data',
-    description:
-      'Use this when you know a skill XML ID and want its modifier list and documentation without opening the full skills XML. This reads the precomputed skill projection table and is best for quickly understanding attribute modifiers.',
-    inputSchema: {
-      skillId: z.string().describe('Exact skill XML ID such as IronFlesh1 or PowerStrike1.'),
-    },
-    annotations: {
-      readOnlyHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ skillId }) => await getSkillData(skillId),
+  async ({ kind, id }) => await getEntity(kind, id),
 )
 
 server.registerTool(
   'generate_harmony_patch',
   {
     title: 'Generate Harmony Patch',
-    description:
-      'Use this after you have identified the target class and method and want a safe Harmony patch scaffold. It relies on the AST-based method index, so it is better than hand-writing a patch when overloads or static-vs-instance details matter.',
+    description: 'Generate a Harmony patch scaffold for a known target method. Uses the AST method index, so overload/static details are correct.',
     inputSchema: {
-      className: z.string().describe('Simple class name, such as MobileParty or Hero.'),
-      methodName: z.string().describe('Exact method name, such as CalculateSpeed, Tick, or Initialize.'),
+      className: z.string().describe('Class name, e.g. MobileParty.'),
+      methodName: z.string().describe('Method name, e.g. CalculateSpeed.'),
     },
   },
   async ({ className, methodName }) => await generateHarmonyPatch(className, methodName),
@@ -799,12 +446,11 @@ if (bannerlordToolsetMode === 'full') {
     'generate_xslt_patch',
     {
       title: 'Generate XSLT Patch',
-      description:
-        'Use this when you need to modify Bannerlord XML through an XSLT patch instead of editing source XML directly. Provide the target XPath and choose insert, replace, or delete based on whether you are appending a new node, overwriting an existing node, or removing one.',
+      description: 'Generate an XSLT patch for Bannerlord XML instead of editing source XML directly.',
       inputSchema: {
-        targetXPath: z.string().describe('XPath that matches the target node, for example /Items/Item[@id=\'saddle_horse\'].'),
-        operation: z.enum(['insert', 'replace', 'delete']).describe('Patch mode: insert appends inside the target node, replace swaps the target node, delete removes it.'),
-        fragment: z.string().optional().describe('Optional XML fragment to insert or replace with. Omit it for delete.'),
+        targetXPath: z.string().describe("XPath to target node, e.g. /Items/Item[@id='saddle_horse']."),
+        operation: z.enum(['insert', 'replace', 'delete']).describe('insert appends inside target; replace swaps target; delete removes it.'),
+        fragment: z.string().optional().describe('XML fragment to insert or replace with. Omit for delete.'),
       },
     },
     async ({ targetXPath, operation, fragment }) =>
@@ -816,11 +462,10 @@ server.registerTool(
   'resolve_localization',
   {
     title: 'Resolve Localization Token',
-    description:
-      'Use this whenever you encounter Bannerlord text in the form {=token}Fallback and need the actual localized strings. It reads both indexed Languages XML entries and source-derived fallback literals extracted from the decompiled C# source, which is especially useful for item names, troop names, UI labels, and hardcoded gameplay text.',
+    description: 'Resolve a {=token}Fallback string to its localized text (Languages XML + source fallback literals).',
     inputSchema: {
-      text: z.string().describe('A Bannerlord localization token like {=P1rL28RT}Sumpter Horse.'),
-      languages: z.array(z.string()).optional().describe('Optional preferred language order, for example ["English", "CN"].'),
+      text: z.string().describe('Token like {=P1rL28RT}Sumpter Horse.'),
+      languages: z.array(z.string()).optional().describe('Preferred language order, e.g. ["English", "CN"].'),
     },
     annotations: {
       readOnlyHint: true,
@@ -834,10 +479,9 @@ server.registerTool(
   'read_gauntlet_ui',
   {
     title: 'Read Gauntlet UI',
-    description:
-      'Use this when you know the Gauntlet XML name and need a quick ViewModel binding checklist. It is best for discovering DataSource fields and click handlers before implementing or patching the matching ViewModel class.',
+    description: 'Get a ViewModel binding checklist for a Gauntlet UI XML: DataSource fields and click handlers.',
     inputSchema: {
-      uiFileName: z.string().describe('UI XML filename stem such as InventoryScreen or EncyclopediaHeroPage.'),
+      uiFileName: z.string().describe('UI XML stem, e.g. InventoryScreen.'),
     },
     annotations: {
       readOnlyHint: true,

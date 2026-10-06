@@ -523,8 +523,33 @@ async function* walkFiles(dir: string): AsyncGenerator<string> {
     const fullPath = join(dir, entry.name)
     if (entry.isDirectory()) {
       yield* walkFiles(fullPath)
-    } else if (entry.isFile()) {
+      continue
+    }
+    if (entry.isFile()) {
       yield fullPath
+      continue
+    }
+    // ★ 符号链接必须单独处理（2026-10-06 修）：`withFileTypes` 的 dirent 来自**目录项本身**，
+    //   不跟随 reparse point ⇒ 用 mod 管理器（Vortex 等）以符号链接安装时，
+    //   `Modules\<mod>\bin\Win64_Shipping_Client\*.dll` 的 `isFile()` **恒为 false**。
+    //   实测本机该目录 111 个条目里 **110 个是符号链接**（LinkType=SymbolicLink、Length=0）
+    //   ⇒ 修复前一个 DLL 都收不到 ⇒ `bannerlord_doctor` 报出
+    //   **39 条 `missing_declared_submodule_dll` 假警报（逐条核实 39/39 全假）**。
+    //   修后同一目录收到 67 个 DLL；抽样 6 个模块合计 1 → 130 个。
+    //   判据：跟随链接看目标类型 —— 目录则递归、文件则收、**断链则跳过**
+    //   （断链是另一个问题，不该在这里报"声明了但没找到"）。
+    if (entry.isSymbolicLink()) {
+      let linkTarget
+      try {
+        linkTarget = await stat(fullPath)
+      } catch {
+        continue
+      }
+      if (linkTarget.isDirectory()) {
+        yield* walkFiles(fullPath)
+      } else if (linkTarget.isFile()) {
+        yield fullPath
+      }
     }
   }
 }

@@ -105,18 +105,7 @@ export async function bannerlordIndexStatus(gameId?: string) {
         },
         {
           key: 'structured_query_tools',
-          values: [
-            'trace_troop_tree',
-            'get_item_stats',
-            'get_hero_profile',
-            'get_clan_summary',
-            'get_kingdom_summary',
-            'get_culture_summary',
-            'get_settlement_summary',
-            'get_skill_data',
-            'get_policy_summary',
-            'get_perk_data',
-          ],
+          values: ['get_entity (clan,culture,hero,item,kingdom,perk,policy,settlement,skill,troop)'],
         },
         {
           key: 'diagnostic_tools',
@@ -125,12 +114,8 @@ export async function bannerlordIndexStatus(gameId?: string) {
         {
           key: 'project_memory_tools',
           values: [
-            'project_memory_add',
-            'project_memory_capture_session',
-            'project_memory_search',
-            'project_memory_recent',
-            'project_memory_wakeup',
-            'project_memory_invalidate',
+            'project_memory_read (search,recent,wakeup)',
+            'project_memory_write (add,capture_session,invalidate)',
           ],
         },
         {

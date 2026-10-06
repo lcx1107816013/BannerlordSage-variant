@@ -53,12 +53,8 @@ Basic workflow: **run setup → start MCP → let the model call tools**
 
 | Tool | Description |
 |------|-------------|
-| `project_memory_add` | Store one project memory entry |
-| `project_memory_capture_session` | Store a session summary plus decisions, pitfalls, preferences, TODOs, and notes in one call |
-| `project_memory_search` | Search project memory before answering questions about past work |
-| `project_memory_recent` | Show recent project memory entries |
-| `project_memory_wakeup` | Load key active memory at session start |
-| `project_memory_invalidate` | Mark an old memory as inactive |
+| `project_memory_read` | Read memory: `action=search` (full-text), `recent` (newest), `wakeup` (top-priority at session start) |
+| `project_memory_write` | Write memory: `action=add` (one entry), `capture_session` (batch session summary), `invalidate` (mark obsolete) |
 
 ### Official Source & XML
 
@@ -84,16 +80,9 @@ Basic workflow: **run setup → start MCP → let the model call tools**
 
 | Tool | Description |
 |------|-------------|
-| `trace_troop_tree` | Query the full upgrade path for a troop type |
-| `get_item_stats` | Query detailed stats for a weapon, equipment, or smithing piece |
-| `get_hero_profile` | Query a hero's skills, traits, and background |
-| `get_clan_summary` | Query a clan or faction's members, strength, and relations |
-| `get_kingdom_summary` | Query a kingdom's territories, policies, and current state |
-| `get_culture_summary` | Query a culture's unique units, bonuses, and style |
-| `get_settlement_summary` | Query a town, village, or castle |
-| `get_skill_data` | Query a skill's attributes, bonuses, and related perks |
-| `get_policy_summary` | Query a policy's description, support info, and cross-references |
-| `get_perk_data` | Query a perk's skill tree, paired perk, character bonuses, and description |
+| `get_entity` | Look up one entity by id. `kind` = `clan`, `culture`, `hero`, `item`, `kingdom`, `perk`, `policy`, `settlement`, `skill`, `troop` |
+
+Example: `get_entity(kind="troop", id="vlandian_recruit")` returns the upgrade tree; `get_entity(kind="item", id="saddle_horse")` returns item stats.
 
 ### Local Mod Source
 
@@ -131,7 +120,7 @@ Basic workflow: **run setup → start MCP → let the model call tools**
 3. `resolve_localization` — resolve tokens
 
 **Known game ID, direct lookup:**
-- Use the structured query tools directly: `get_item_stats`, `trace_troop_tree`, `get_hero_profile`, etc.
+- Use `get_entity` with the right `kind`: `get_item_stats` → `get_entity(kind="item")`, `trace_troop_tree` → `get_entity(kind="troop")`, `get_hero_profile` → `get_entity(kind="hero")`.
 
 **Read local mod source:**
 1. `mod_source_status` — confirm the workspace
@@ -139,20 +128,20 @@ Basic workflow: **run setup → start MCP → let the model call tools**
 3. `read_mod_file` / `read_mod_type` — read the details
 
 **Resume work with project memory:**
-1. `project_memory_wakeup` — load the key active context for the workspace
-2. `project_memory_search` — check whether a similar decision, pitfall, or preference already exists
-3. `project_memory_capture_session` — store the useful session output near the end of the task
+1. `project_memory_read(action="wakeup")` — load the key active context for the workspace
+2. `project_memory_read(action="search")` — check whether a similar decision, pitfall, or preference already exists
+3. `project_memory_write(action="capture_session")` — store the useful session output near the end of the task
 
 ## Daily MCP Usage
 
 Once BannerlordSage is installed and connected to your AI client, the normal daily loop is:
 
-1. Start or resume a task and call `project_memory_wakeup`
+1. Start or resume a task and call `project_memory_read(action="wakeup")`
 2. Explore official behavior with `search_source`, `read_file`, and `read_csharp_type`
 3. Explore your own mod with `mod_source_status`, `search_mod_source`, `read_mod_file`, and `read_mod_type`
-4. Use the structured query tools when you already know an in-game id
-5. Before stating project history, call `project_memory_search`
-6. Near the end of the task, call `project_memory_capture_session`
+4. Use `get_entity` when you already know an in-game id
+5. Before stating project history, call `project_memory_read(action="search")`
+6. Near the end of the task, call `project_memory_write(action="capture_session")`
 
 ## Project Memory Workflow
 
@@ -160,11 +149,11 @@ Project memory is a local recall layer. It does not change the model's context w
 
 Use it like this:
 
-- start a resumed task with `project_memory_wakeup`
+- start a resumed task with `project_memory_read(action="wakeup")`
 - search memory before claiming project history
 - store only durable conclusions
-- prefer `project_memory_capture_session` near task completion
-- invalidate old memories when they are no longer true
+- prefer `project_memory_write(action="capture_session")` near task completion
+- invalidate old memories with `project_memory_write(action="invalidate")` when they are no longer true
 
 ## Installation
 

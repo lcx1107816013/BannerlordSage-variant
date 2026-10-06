@@ -32,3 +32,9 @@ tools/**/obj/
 
 # Internal notes that should not ship with the public repo
 BANNERLORDSAGE_OPTIMIZATION_STATE.md
+
+# Manual backups / editor leftovers (never ship these) — 2026-10-06
+*.bak
+*.bak_*
+*.orig
+*.tmp
