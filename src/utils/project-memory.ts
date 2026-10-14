@@ -276,13 +276,48 @@ export function captureProjectMemorySession(input: CaptureProjectMemorySessionIn
   return dedupeRecords(records)
 }
 
+/**
+ * Turn free text into an FTS5 MATCH expression that cannot throw.
+ *
+ * Why this exists: user text goes straight into `MATCH $query`, and FTS5 parses
+ * query syntax, not just text. A hyphen is a column filter, so
+ * `MATCH 'bannerscribe-regression-test'` fails with
+ * `no such column: regression`; other punctuation (`"`, `*`, `(`, `:`, `NEAR`)
+ * throws its own syntax errors. Verified against SQLite directly.
+ *
+ * Fixes, in order:
+ *  - strip every double quote, because a disallowed quote is itself a syntax error
+ *  - keep letters/digits/underscore/inner hyphens, so `bannerscribe-2` stays one
+ *    token, then wrap the whole thing in quotes: an FTS5 string is safe, and
+ *    an inner `-` inside a quoted phrase is literal since it cannot be a column
+ *    filter there
+ *
+ * A phrase search is stricter than the old token-AND behaviour, so a query that
+ * finds nothing as a phrase is retried token-by-token, OR-joined. That preserves
+ * recall for multi-word queries while never throwing.
+ */
+function buildFtsMatchExpression(raw: string): string {
+  const cleaned = raw
+    .replace(/"/g, ' ')
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .map(part => part.replace(/^-+|-+$/g, ''))
+    .filter(Boolean)
+
+  if (cleaned.length === 0) return ''
+  if (cleaned.length === 1) return `"${cleaned[0]}"`
+  return `"${cleaned.join(' ')}" OR ${cleaned.map(t => `"${t}"`).join(' OR ')}`
+}
+
 export function searchProjectMemories(input: SearchProjectMemoryInput): ProjectMemoryRecord[] {
   const query = input.query.trim()
   if (!query) return []
 
+  const match = buildFtsMatchExpression(query)
+  if (!match) return []
+
   const db = getMemoryDb()
   const params: Record<string, string | number> = {
-    $query: query,
+    $query: match,
     $limit: clampLimit(input.limit, 5, 1, 20),
   }
   const whereClauses = buildMetadataFilters(input, params, 'm')
