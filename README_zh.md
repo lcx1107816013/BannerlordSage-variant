@@ -16,11 +16,12 @@
 > [`LICENSE`](./LICENSE)（含「Upstream notice」段）。
 >
 > 相对上游的主要改动（详情见 `NOTICE`）：
-> - 工具面收敛为 **24 个**（上游 `src/tools/` 里有 16 个**从未被注册**的文件，本次移除了它们的 import）
+> - 工具面收敛为 **30 个**（走分发型工具；上游注册了 **37** 个，且 `src/tools/` 里有 16 个**从未被注册**的文件，已移除其 import）
+> - 已同步上游至 `eb05ae9`（实验性本地编辑器 MCP 预览已并入；5 个动作工具仅进 `full` 档）
 > - 修 **Vortex 符号链接**导致的 `bannerlord_doctor` 假阳性（**39 → 0**；DLL 数 1 → 130）
 > - 补 `.gitignore` 的 `.bak` 规则
 >
-> ★ 本仓库**保留上游 `origin` remote**，以便继续跟进上游更新。
+> ★ 本仓库**保留上游 remote（`upstream`）**，以便继续跟进上游更新。
 
 一个提供《骑马与砍杀2：霸主》源代码搜索和数据浏览功能的 MCP 服务器。
 
@@ -47,12 +48,12 @@ BannerlordSage 包含基于 Vortex 的 RimSage 演化而来的工作。
 
 ## 工具总览
 
-BannerlordSage 共提供 **24 个工具**，分两个入口：
+BannerlordSage 共提供 **30 个工具**，分两个入口：
 
 | 入口 | 工具数 | 说明 |
 |------|--------|------|
-| `bun run start:bannerlord` | 22 | 默认工具集，适合查询、分析、本地 mod 工作和项目记忆 |
-| `bun run start:bannerlord:full` | 24 | 额外提供工作区创建和 XSLT Patch 生成 |
+| `bun run start:bannerlord` | 23 | 默认工具集，适合查询、分析、本地 mod 工作和项目记忆 |
+| `bun run start:bannerlord:full` | 30 | 额外提供工作区创建、XSLT Patch 生成和实验性编辑器预览 |
 
 基本使用流程：**运行 setup → 启动 MCP → 让模型调用工具**
 

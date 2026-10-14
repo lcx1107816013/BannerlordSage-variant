@@ -11,6 +11,8 @@ An **unofficial variant** of BannerlordSage, tailored for our agent toolchain.
 - **Upstream license**: MIT — Copyright (c) 2026 Vortex; Copyright (c) 2026 hby7921
 - **Upstream commit this variant was based on**: `8311c9a`
   ("Index Bannerlord docs during setup")
+- **Upstream changes merged since**: `eb05ae9` ("Add experimental local editor MCP
+  preview") — merged with adaptations; see the table below.
 - **Variant license**: MIT (see `LICENSE`)
 - **Not affiliated with or endorsed by** the upstream authors.
 
@@ -21,8 +23,10 @@ The upstream's own NOTICE/attribution remains intact in its `LICENSE`.
 
 | Area | Change |
 |---|---|
-| `src/server.ts` | Tool surface narrowed/restructured (net −582 / +251 lines across the tree). Upstream registered **37** tools (`registerTool(` count at upstream `8311c9a`); the live surface is **24**. Of the **39** files under `src/tools/`, **23** are imported by `server.ts`; the remaining **16** are legacy and no longer referenced. |
-| `src/utils/bannerlord-toolset.ts` | Toolset mode resolution adjusted. |
+| `src/server.ts` | Tool surface narrowed/restructured (net −582 / +251 lines across the tree). Upstream registered **37** tools (`registerTool(` count at upstream `8311c9a`); the live surface is **30** after merging upstream `eb05ae9`. |
+| `src/tools/bannerlord-editor.ts`, `src/utils/bannerlord-editor-client.ts`, `src/utils/bannerlord-editor-client.test.ts`, `tools/editor-probe/` | Merged from upstream `eb05ae9` (experimental local editor MCP preview). `bannerlord_editor_status` lives in the query-first tier; the five action tools live in the authoring (`full`) tier, matching this variant's tiering. |
+| `src/utils/bannerlord-editor-registry.test.ts` | Adapted from upstream `eb05ae9`: hard-coded upstream tool counts (36/43) replaced with this variant's counts (23/30), so the registry test validates this variant's actual registration. |
+| `src/utils/bannerlord-toolset.ts` | Toolset mode resolution adjusted; editor tool names added to the tier lists. |
 | `src/utils/bannerlord-module-tooling.ts` | **Fixed a symlink blind spot**: `walkFiles()` used `entry.isFile()` only, which is `false` for symbolic links. With mod managers that install via symlinks (e.g. Vortex), every `Modules/<mod>/bin/Win64_Shipping_Client/*.dll` was invisible, so `bannerlord_doctor` reported **39 false `missing_declared_submodule_dll` warnings** (verified 39/39 false positives). Fixed by following links and classifying the target (directory → recurse, file → yield, broken link → skip). Measured effect on this machine: DLLs found went from 1 to 130 across a 6-module sample; doctor issues went from 41 to 2. |
 | `src/utils/bannerlord-setup.ts` | Same symlink fix (byte-identical `walkFiles` helper). |
 | `src/utils/game-profiles.ts` | Same symlink fix (byte-identical `walkFiles` helper). |

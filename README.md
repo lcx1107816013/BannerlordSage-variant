@@ -16,13 +16,16 @@
 > [`LICENSE`](./LICENSE) (see the "Upstream notice" section).
 >
 > Main changes relative to upstream (details in `NOTICE`):
-> - Tool surface narrowed to **24 tools** (upstream had 16 files under `src/tools/`
->   that were **never registered**; their imports were removed)
+> - Tool surface narrowed to **30 tools** via dispatcher tools (upstream registered **37**;
+>   upstream also had 16 files under `src/tools/` that were **never registered**, their
+>   imports were removed)
+> - Upstream synced through `eb05ae9` (experimental local editor MCP preview merged;
+>   the five action tools live in the `full` tier only)
 > - Fixed **Vortex symlink** handling that made `bannerlord_doctor` report
 >   false positives (**39 → 0**; DLL count 1 → 130)
 > - Added `.bak` rules to `.gitignore`
 >
-> ★ The upstream `origin` remote is **kept**, so upstream updates can still be followed.
+> ★ The upstream remote (`upstream`) is **kept**, so upstream updates can still be followed.
 
 An MCP server for **Mount & Blade II: Bannerlord** that provides source code search and data browsing.
 
@@ -49,12 +52,12 @@ The project remains under the MIT License. See [`LICENSE`](./LICENSE).
 
 ## Tool Overview
 
-BannerlordSage provides **24 tools** across two entrypoints:
+BannerlordSage provides **30 tools** across two entrypoints:
 
 | Entrypoint | Tools | Notes |
 |------------|-------|-------|
-| `bun run start:bannerlord` | 22 | Default toolset for query, analysis, mod-source work, and project memory |
-| `bun run start:bannerlord:full` | 24 | Adds workspace creation and XSLT patch generation |
+| `bun run start:bannerlord` | 23 | Default toolset for query, analysis, mod-source work, and project memory |
+| `bun run start:bannerlord:full` | 30 | Adds workspace creation, XSLT patch generation, and the experimental editor preview |
 
 Basic workflow: **run setup → start MCP → let the model call tools**
 

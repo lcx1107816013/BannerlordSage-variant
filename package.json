@@ -15,6 +15,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/entrypoints/bannerlord-stdio.ts",
+    "test": "bun test",
     "start:bannerlord": "bun run src/entrypoints/bannerlord-stdio.ts",
     "start:bannerlord:full": "bun run src/entrypoints/bannerlord-full-stdio.ts",
     "setup": "bun run src/scripts/setup.ts",
