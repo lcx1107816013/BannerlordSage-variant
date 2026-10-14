@@ -1,0 +1,7 @@
+# Temp dir used by tools/parity/gen_fixtures.mjs when it writes extracted TS
+# snippets out to be transpiled and imported. Regenerated on every run.
+tools/parity/.tmp/
+
+# Go build output
+/bc-server
+/bc-server.exe
