@@ -49,12 +49,12 @@ The project remains under the MIT License. See [`LICENSE`](./LICENSE).
 
 ## Tool Overview
 
-BannerlordSage provides **37 tools** across two entrypoints:
+BannerlordSage provides **24 tools** across two entrypoints:
 
 | Entrypoint | Tools | Notes |
 |------------|-------|-------|
-| `bun run start:bannerlord` | 35 | Default toolset for query, analysis, mod-source work, and project memory |
-| `bun run start:bannerlord:full` | 37 | Adds workspace creation and XSLT patch generation |
+| `bun run start:bannerlord` | 22 | Default toolset for query, analysis, mod-source work, and project memory |
+| `bun run start:bannerlord:full` | 24 | Adds workspace creation and XSLT patch generation |
 
 Basic workflow: **run setup → start MCP → let the model call tools**
 

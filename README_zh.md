@@ -47,12 +47,12 @@ BannerlordSage 包含基于 Vortex 的 RimSage 演化而来的工作。
 
 ## 工具总览
 
-BannerlordSage 共提供 **37 个工具**，分两个入口：
+BannerlordSage 共提供 **24 个工具**，分两个入口：
 
 | 入口 | 工具数 | 说明 |
 |------|--------|------|
-| `bun run start:bannerlord` | 35 | 默认工具集，适合查询、分析、本地 mod 工作和项目记忆 |
-| `bun run start:bannerlord:full` | 37 | 额外提供工作区创建和 XSLT Patch 生成 |
+| `bun run start:bannerlord` | 22 | 默认工具集，适合查询、分析、本地 mod 工作和项目记忆 |
+| `bun run start:bannerlord:full` | 24 | 额外提供工作区创建和 XSLT Patch 生成 |
 
 基本使用流程：**运行 setup → 启动 MCP → 让模型调用工具**
 
