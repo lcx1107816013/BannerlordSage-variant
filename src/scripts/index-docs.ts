@@ -1,6 +1,17 @@
-import { createHash } from 'node:crypto'
+// src/scripts/index-docs.ts
+// EXTERNAL docs sources (official moddocs, community wiki). Opt-in only —
+// the default knowledge source is the in-repo own knowledge base
+// (`index-own-docs.ts`, seeded from knowledge/).
 import { Database } from 'bun:sqlite'
 import { ensureSetupDirectoriesForGame } from '../utils/bannerlord-setup'
+import {
+  deleteDocsBySource,
+  ensureDocsSchema,
+  insertDocRows,
+  makeDocId,
+  upsertSource,
+  type DocRow,
+} from '../utils/docs-db'
 import { getGamePaths } from '../utils/env'
 
 type CliArgs = {
@@ -22,17 +33,6 @@ type CommunitySearchIndex = {
     title?: string
     text?: string
   }>
-}
-
-type DocRow = {
-  id: string
-  source: string
-  language: string
-  category: string
-  title: string
-  url: string
-  content: string
-  indexedAt: string
 }
 
 const OFFICIAL_SOURCE = {
@@ -75,66 +75,22 @@ export async function buildDocsIndex(gameId?: string, source: CliArgs['source'] 
 
   try {
     ensureDocsSchema(db)
-    if (source === 'all') {
-      db.run('DELETE FROM bannerlord_docs_pages;')
-      db.run('DELETE FROM bannerlord_docs_fts;')
-      db.run('DELETE FROM bannerlord_docs_sources;')
-    } else {
-      const sourceId = source === 'official' ? OFFICIAL_SOURCE.id : COMMUNITY_SOURCE.id
-      db.prepare('DELETE FROM bannerlord_docs_pages WHERE source = $source').run({ $source: sourceId })
-      db.prepare('DELETE FROM bannerlord_docs_fts WHERE source = $source').run({ $source: sourceId })
-      db.prepare('DELETE FROM bannerlord_docs_sources WHERE source = $source').run({ $source: sourceId })
+    const targetSources = source === 'all'
+      ? [OFFICIAL_SOURCE.id, COMMUNITY_SOURCE.id]
+      : [source === 'official' ? OFFICIAL_SOURCE.id : COMMUNITY_SOURCE.id]
+    for (const sourceId of targetSources) {
+      deleteDocsBySource(db, sourceId)
     }
-
     upsertSource(db, OFFICIAL_SOURCE.id, OFFICIAL_SOURCE.label, OFFICIAL_SOURCE.baseUrl, OFFICIAL_SOURCE.language, indexedAt)
     upsertSource(db, COMMUNITY_SOURCE.id, COMMUNITY_SOURCE.label, COMMUNITY_SOURCE.baseUrl, COMMUNITY_SOURCE.language, indexedAt)
-
-    const insertPage = db.prepare(`
-      INSERT OR REPLACE INTO bannerlord_docs_pages (
-        id, source, language, category, title, url, content, indexedAt
-      ) VALUES (
-        $id, $source, $language, $category, $title, $url, $content, $indexedAt
-      )
-    `)
-    const insertFts = db.prepare(`
-      INSERT INTO bannerlord_docs_fts (
-        id, source, language, category, title, url, content
-      ) VALUES (
-        $id, $source, $language, $category, $title, $url, $content
-      )
-    `)
-
-    const transaction = db.transaction((batch: DocRow[]) => {
-      for (const row of batch) {
-        insertPage.run({
-          $id: row.id,
-          $source: row.source,
-          $language: row.language,
-          $category: row.category,
-          $title: row.title,
-          $url: row.url,
-          $content: row.content,
-          $indexedAt: row.indexedAt,
-        })
-        insertFts.run({
-          $id: row.id,
-          $source: row.source,
-          $language: row.language,
-          $category: row.category,
-          $title: row.title,
-          $url: row.url,
-          $content: row.content,
-        })
-      }
-    })
-    transaction(rows)
+    insertDocRows(db, rows)
   } finally {
     db.close()
   }
 
   const officialPages = rows.filter(row => row.source === OFFICIAL_SOURCE.id).length
   const communityPages = rows.filter(row => row.source === COMMUNITY_SOURCE.id).length
-  console.log(`Bannerlord docs index built for ${resolvedGameId}.`)
+  console.log(`External Bannerlord docs index built for ${resolvedGameId}.`)
   console.log(`Official moddocs pages: ${officialPages}`)
   console.log(`Community docs pages: ${communityPages}`)
   console.log(`Total docs pages: ${rows.length}`)
@@ -195,70 +151,6 @@ async function fetchCommunityDocs(indexedAt: string): Promise<DocRow[]> {
     .filter((row): row is DocRow => Boolean(row))
 }
 
-function ensureDocsSchema(db: Database): void {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS bannerlord_docs_sources (
-      source TEXT PRIMARY KEY,
-      label TEXT NOT NULL,
-      baseUrl TEXT NOT NULL,
-      language TEXT NOT NULL,
-      indexedAt TEXT NOT NULL
-    );
-  `)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS bannerlord_docs_pages (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      language TEXT NOT NULL,
-      category TEXT NOT NULL,
-      title TEXT NOT NULL,
-      url TEXT NOT NULL,
-      content TEXT NOT NULL,
-      indexedAt TEXT NOT NULL
-    );
-  `)
-  db.run(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS bannerlord_docs_fts USING fts5(
-      id UNINDEXED,
-      source UNINDEXED,
-      language UNINDEXED,
-      category,
-      title,
-      url UNINDEXED,
-      content,
-      tokenize = 'unicode61',
-      prefix = '2 3 4'
-    );
-  `)
-  db.run('CREATE INDEX IF NOT EXISTS bannerlord_docs_pages_source_idx ON bannerlord_docs_pages(source);')
-  db.run('CREATE INDEX IF NOT EXISTS bannerlord_docs_pages_category_idx ON bannerlord_docs_pages(category);')
-}
-
-function upsertSource(
-  db: Database,
-  source: string,
-  label: string,
-  baseUrl: string,
-  language: string,
-  indexedAt: string
-): void {
-  db.prepare(`
-    INSERT INTO bannerlord_docs_sources (source, label, baseUrl, language, indexedAt)
-    VALUES ($source, $label, $baseUrl, $language, $indexedAt)
-    ON CONFLICT(source) DO UPDATE SET
-      label = excluded.label,
-      baseUrl = excluded.baseUrl,
-      language = excluded.language,
-      indexedAt = excluded.indexedAt
-  `).run({
-    $source: source,
-    $label: label,
-    $baseUrl: baseUrl,
-    $language: language,
-    $indexedAt: indexedAt,
-  })
-}
-
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url)
   if (!response.ok) {
@@ -266,10 +158,6 @@ async function fetchJson<T>(url: string): Promise<T> {
   }
 
   return await response.json() as T
-}
-
-function makeDocId(source: string, url: string): string {
-  return createHash('sha1').update(`${source}|${url}`).digest('hex')
 }
 
 function inferUrlCategory(url: string, baseUrl: string): string {
@@ -362,7 +250,10 @@ Usage:
 Options:
   --game <id>                Game profile to index into. Default: bannerlord.
   --source <all|official|community>
-                             Select which docs source to refresh. Default: all.
+                             Select which external docs source to refresh. Default: all.
+                             Note: external docs are opt-in. The default knowledge
+                             source is the in-repo own knowledge base:
+                               bun run index:own-docs
 `)
   process.exit(0)
 }

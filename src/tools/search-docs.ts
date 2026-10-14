@@ -2,9 +2,9 @@ import { databaseHasTable, getDb } from '../utils/db'
 import { getGamePaths } from '../utils/env'
 import { renderAiTextReport, type AiTextBlock } from '../utils/ai-text'
 
-type DocsSourceFilter = 'all' | 'official' | 'community'
+type DocsSourceFilter = 'own' | 'all' | 'official' | 'community'
 
-export async function searchDocs(query: string, source: DocsSourceFilter = 'all', limit = 8) {
+export async function searchDocs(query: string, source: DocsSourceFilter = 'own', limit = 8) {
   const db = getDb()
   const paths = getGamePaths()
 
@@ -15,7 +15,7 @@ export async function searchDocs(query: string, source: DocsSourceFilter = 'all'
           type: 'text' as const,
           text: renderAiTextReport('bannerlord_docs_search', 'query_text', query, [], [
             { key: 'index_status', value: 'missing' },
-            { key: 'setup_hint', value: 'Run bun run index:docs first.' },
+            { key: 'setup_hint', value: 'Run bun run index:own-docs first (external docs: bun run index:docs).' },
           ]),
         },
       ],
@@ -86,6 +86,7 @@ function buildFtsQuery(query: string): string {
 }
 
 function normalizeSourceFilter(source: DocsSourceFilter): string | null {
+  if (source === 'own') return 'own_knowledge'
   if (source === 'official') return 'official_moddocs'
   if (source === 'community') return 'community_modding_docs'
   return null

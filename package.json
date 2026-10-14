@@ -1,7 +1,7 @@
 {
-  "name": "bannerlord-sage",
-  "version": "0.2.0",
-  "description": "MCP server for Mount & Blade II: Bannerlord modding, reverse engineering, and local data indexing.",
+  "name": "bannerlord-blore",
+  "version": "0.3.0",
+  "description": "MCP server for Mount & Blade II: Bannerlord modding, reverse engineering, local data indexing, and our own knowledge base.",
   "license": "MIT",
   "keywords": [
     "mcp",
@@ -32,6 +32,7 @@
     "index:xml": "bun run src/scripts/index-xml.ts",
     "index:gameplay": "bun run src/scripts/index-bannerlord-gameplay.ts",
     "index:docs": "bun run src/scripts/index-docs.ts",
+    "index:own-docs": "bun run src/scripts/index-own-docs.ts",
     "index:api-docs": "bun run src/scripts/index-api-docs.ts"
   },
   "dependencies": {

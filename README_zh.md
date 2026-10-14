@@ -1,4 +1,4 @@
-# BannerlordSage
+# Bannerlord-Blore
 
 [![Bannerlord](https://img.shields.io/badge/Game-Bannerlord_II-8B0000?style=flat&logo=target)](https://www.taleworlds.com/en/Games/Bannerlord)
 [![ILSpy](https://img.shields.io/badge/Tool-ILSpy-blue?style=flat&logo=c-sharp)](https://github.com/icsharpcode/ILSpy)
@@ -7,15 +7,16 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
-> ⚠️ **这是「变种」（非官方分支），不是上游原版**
+> ℹ️ **Bannerlord-Blore** —— 我们自己的骑砍 MCP 服务器（MCP 名 `blore`），
+> 起源是 [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage)（MIT）的非官方变种。
 >
-> 上游：[`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage)（MIT）。
 > 本仓库在上游基础上做了改动，**改动清单与理由见 [`NOTICE`](./NOTICE)**。
 >
 > **我们不声称与上游有任何隶属或背书关系**；上游版权与许可原文保留在
 > [`LICENSE`](./LICENSE)（含「Upstream notice」段）。
 >
 > 相对上游的主要改动（详情见 `NOTICE`）：
+> - **自有知识库**：默认知识层改为仓库内 `knowledge/` 语料（自研 modding 实战知识 + MCP suite 文档）；外部网页文档（官方教程、BannerlordModding.LT、apidoc.bannerlord.com）改为可选项，需 `bun run index:docs` / `--reindex-docs` 才抓取
 > - 工具面收敛为 **30 个**（走分发型工具；上游注册了 **37** 个，且 `src/tools/` 里有 16 个**从未被注册**的文件，已移除其 import）
 > - 已同步上游至 `eb05ae9`（实验性本地编辑器 MCP 预览已并入；5 个动作工具仅进 `full` 档）
 > - 修 **Vortex 符号链接**导致的 `bannerlord_doctor` 假阳性（**39 → 0**；DLL 数 1 → 130）

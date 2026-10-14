@@ -1,4 +1,5 @@
-# BannerlordSage
+# Bannerlord-Blore
+
 [![Bannerlord](https://img.shields.io/badge/Game-Bannerlord_II-8B0000?style=flat&logo=target)](https://www.taleworlds.com/en/Games/Bannerlord)
 [![ILSpy](https://img.shields.io/badge/Tool-ILSpy-blue?style=flat&logo=c-sharp)](https://github.com/icsharpcode/ILSpy)
 [![bun](https://img.shields.io/badge/Bun-%23000000.svg?style=flat&logo=bun&logoColor=white)](https://bun.com/)
@@ -6,9 +7,9 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
-> ⚠️ **This is a VARIANT (an unofficial fork), not the upstream original.**
+> ℹ️ **Bannerlord-Blore** — our own Bannerlord MCP server (MCP name `blore`),
+> originally an unofficial variant of [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage) (MIT).
 >
-> Upstream: [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage) (MIT).
 > This repository modifies it; **see [`NOTICE`](./NOTICE)** for what changed and why.
 >
 > **We claim no affiliation with, or endorsement by, the upstream author.**
@@ -16,6 +17,10 @@
 > [`LICENSE`](./LICENSE) (see the "Upstream notice" section).
 >
 > Main changes relative to upstream (details in `NOTICE`):
+> - **Own knowledge base**: the default knowledge layer is our in-repo `knowledge/`
+>   corpus (curated modding know-how + MCP suite docs); external web docs
+>   (official tutorials, BannerlordModding.LT, apidoc.bannerlord.com) are opt-in
+>   via `bun run index:docs` / `--reindex-docs`
 > - Tool surface narrowed to **30 tools** via dispatcher tools (upstream registered **37**;
 >   upstream also had 16 files under `src/tools/` that were **never registered**, their
 >   imports were removed)

@@ -19,6 +19,9 @@ export async function searchKnowledge(
   const apiQuery = buildApiQuery(normalizedQuery, resolvedIntent)
   const sourceQuery = buildSourceQuery(normalizedQuery, resolvedIntent)
 
+  const ownKnowledge = shouldSearchDocs(resolvedIntent)
+    ? await safeSearch('own_knowledge', () => searchDocs(normalizedQuery, 'own', clampLimit(limit)))
+    : undefined
   const officialDocs = shouldSearchDocs(resolvedIntent)
     ? await safeSearch('official_docs', () => searchDocs(officialDocsQuery, 'official', clampLimit(limit)))
     : undefined
@@ -33,6 +36,7 @@ export async function searchKnowledge(
     : undefined
 
   const blocks: AiTextBlock[] = [
+    buildResultBlock('own_knowledge', ownKnowledge),
     buildResultBlock('official_docs', officialDocs),
     buildResultBlock('community_docs', communityDocs),
     buildResultBlock('official_api_docs', apiDocs),
@@ -45,7 +49,7 @@ export async function searchKnowledge(
     { key: 'community_docs_query', value: shouldSearchDocs(resolvedIntent) ? communityDocsQuery : '(skipped)' },
     { key: 'api_query', value: shouldSearchApi(resolvedIntent) ? apiQuery : '(skipped)' },
     { key: 'source_query', value: shouldSearchSource(resolvedIntent) ? sourceQuery : '(skipped)' },
-    { key: 'docs_scope', value: shouldSearchDocs(resolvedIntent) ? 'official_and_community' : 'skipped' },
+    { key: 'docs_scope', value: shouldSearchDocs(resolvedIntent) ? 'own_knowledge_first_then_official_community' : 'skipped' },
     { key: 'api_scope', value: shouldSearchApi(resolvedIntent) ? 'official_api_symbols_reference_only_if_version_mismatch' : 'skipped' },
     { key: 'source_scope', value: shouldSearchSource(resolvedIntent) ? 'local_decompiled_source_authority' : 'skipped' },
     {

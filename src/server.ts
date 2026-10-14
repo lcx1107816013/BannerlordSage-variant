@@ -28,12 +28,14 @@ import { searchModSource } from './tools/search-mod-source'
 import { searchSource } from './tools/search-source'
 import { searchXml } from './tools/search-xml'
 
+import packageJson from '../package.json'
+
 const sandbox = new PathSandbox(assetsPath)
 const bannerlordToolsetMode = getBannerlordToolsetMode()
 
 export const server = new McpServer({
-  name: 'bannerlord-sage',
-  version: '1.0.0',
+  name: 'blore',
+  version: packageJson.version,
 })
 
 registerBannerlordEditorTools(server, bannerlordToolsetMode)
@@ -375,11 +377,12 @@ server.registerTool(
 server.registerTool(
   'search_bannerlord_docs',
   {
-    title: 'Search Bannerlord Modding Docs',
-    description: 'Search official modding tutorials and BannerlordModding.LT community docs. Best for concepts, workflows, Gauntlet UI, module structure.',
+    title: 'Search Bannerlord Docs',
+    description:
+      'Search the knowledge base. Default source is the in-repo own knowledge base (our curated modding know-how + MCP suite docs); official/community web docs are optional add-ons and may be absent unless imported. Best for concepts, workflows, Gauntlet UI, module structure.',
     inputSchema: {
       query: z.string().describe('Keywords, e.g. Gauntlet UI or SubModule.'),
-      source: z.enum(['all', 'official', 'community']).optional().default('all').describe('Docs source filter.'),
+      source: z.enum(['own', 'all', 'official', 'community']).optional().default('own').describe('Docs source filter; own = our curated knowledge base.'),
       limit: z.number().optional().default(8).describe('Max matches.'),
     },
     annotations: {

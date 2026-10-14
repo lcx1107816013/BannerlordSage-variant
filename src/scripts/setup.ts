@@ -31,8 +31,6 @@ import {
 import { getGameProfile, listGameProfiles, type DllImportScope, type XmlImportScope } from '../utils/game-profiles'
 import { writeRuntimeRevision } from '../utils/runtime-revision'
 
-const OFFICIAL_DOCS_SOURCE_ID = 'official_moddocs'
-const COMMUNITY_DOCS_SOURCE_ID = 'community_modding_docs'
 const API_INDEXED_ALL_META_KEY = 'indexedAllAvailableVersions'
 
 type CliArgs = {
@@ -329,30 +327,15 @@ export async function runSetup(args = process.argv.slice(2)): Promise<{ runtimeC
     }
   }
 
+  // Own knowledge base: in-repo knowledge/ (+ BANNERSAGE_OWN_DOCS_DIRS).
+  // Local files only — always indexed, even with --skip-docs.
+  console.log('Indexing own knowledge base (knowledge/) ...')
+  const { buildOwnDocsIndex } = await import('./index-own-docs')
+  buildOwnDocsIndex(cli.game)
+  docsIndexed = true
+
   if (!cli.skipDocs) {
     const dbExists = await fileExists(gamePaths.dbPath)
-    const docsPageCount =
-      dbExists && databaseHasTable(gamePaths.dbPath, 'bannerlord_docs_pages')
-        ? databaseTableRowCount(gamePaths.dbPath, 'bannerlord_docs_pages')
-        : 0
-    const officialDocsPageCount =
-      dbExists && databaseHasTable(gamePaths.dbPath, 'bannerlord_docs_pages')
-        ? databaseTableRowCountWhereEquals(
-            gamePaths.dbPath,
-            'bannerlord_docs_pages',
-            'source',
-            OFFICIAL_DOCS_SOURCE_ID
-          )
-        : 0
-    const communityDocsPageCount =
-      dbExists && databaseHasTable(gamePaths.dbPath, 'bannerlord_docs_pages')
-        ? databaseTableRowCountWhereEquals(
-            gamePaths.dbPath,
-            'bannerlord_docs_pages',
-            'source',
-            COMMUNITY_DOCS_SOURCE_ID
-          )
-        : 0
     const apiVersionCount =
       dbExists && databaseHasTable(gamePaths.dbPath, 'bannerlord_api_versions')
         ? databaseTableRowCount(gamePaths.dbPath, 'bannerlord_api_versions')
@@ -371,12 +354,6 @@ export async function runSetup(args = process.argv.slice(2)): Promise<{ runtimeC
         API_INDEXED_ALL_META_KEY,
         'value'
       ) === 'true'
-    const hasDocsIndex =
-      dbExists &&
-      docsPageCount > 0 &&
-      officialDocsPageCount > 0 &&
-      communityDocsPageCount > 0 &&
-      databaseHasTable(gamePaths.dbPath, 'bannerlord_docs_fts')
     const hasApiDocsIndex =
       dbExists &&
       apiVersionCount > 0 &&
@@ -384,13 +361,13 @@ export async function runSetup(args = process.argv.slice(2)): Promise<{ runtimeC
       indexedAllApiVersions &&
       databaseHasTable(gamePaths.dbPath, 'bannerlord_api_entries_fts')
 
-    if (cli.clean || cli.reindexDocs || !hasDocsIndex) {
-      console.log('Indexing official and community Bannerlord docs from public websites...')
+    // External docs are opt-in: --clean / --reindex-docs, or `bun run index:docs`.
+    if (cli.clean || cli.reindexDocs) {
+      console.log('Indexing external official/community Bannerlord docs from public websites (opt-in)...')
       const { buildDocsIndex } = await import('./index-docs')
       await buildDocsIndex(cli.game)
-      docsIndexed = true
     } else {
-      console.log('Skipping docs index because it is already present.')
+      console.log('Skipping external official/community docs (opt-in: --reindex-docs or `bun run index:docs`).')
     }
 
     if (cli.clean || cli.reindexDocs || !hasApiDocsIndex) {
@@ -641,8 +618,9 @@ Options:
   --clean                    Remove previous copied/decompiled outputs before setup; also refresh docs/API unless --skip-docs.
   --skip-decompile           Only refresh XML, docs/API, and indexes.
   --skip-xml                 Only refresh decompiled source, docs/API, and indexes.
-  --skip-docs                Do not download/index official docs or API docs during setup.
-  --reindex-docs             Force refresh official/community docs and all official API versions.
+  --skip-docs                Do not download/index external official docs or API docs during setup
+                             (the in-repo own knowledge base is always indexed).
+  --reindex-docs             Force refresh external official/community docs and all official API versions.
   --decompile-jobs <count>   Parallel ILSpy decompile workers. Default: auto (1 on single-core, otherwise 2).
   --no-index                 Skip local source/XML/gameplay SQLite rebuild after copying assets.
 

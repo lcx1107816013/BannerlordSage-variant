@@ -1,12 +1,12 @@
-# BannerlordSage Agent Guide
+# Bannerlord-Blore Agent Guide
 
-This repository is a Windows-first MCP server for **Mount & Blade II: Bannerlord**.
+This repository is a Windows-first MCP server (MCP name `blore`) for **Mount & Blade II: Bannerlord**.
 
 Use this file when an AI coding agent is asked to inspect, install, configure, verify, or run this repo.
 
 ## Primary Goal
 
-Help the user get BannerlordSage installed and running against a **local Bannerlord installation**.
+Help the user get Bannerlord-Blore installed and running against a **local Bannerlord installation**.
 
 ## What This Repo Does
 
