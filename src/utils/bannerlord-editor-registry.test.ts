@@ -35,8 +35,16 @@ describe('editor integration into the variant BannerlordSage server', () => {
       const expected = [...QUERY_FIRST_BANNERLORD_TOOL_NAMES, ...(mode === 'full' ? AUTHORING_BANNERLORD_TOOL_NAMES : [])].sort()
       expect(result.names).toEqual(expected)
       expect(new Set(result.names).size).toBe(result.names.length)
-      // variant: 22 query-first + editor_status = 23; full adds 2 authoring + 5 editor actions = 30
-      expect(result.names.length).toBe(mode === 'full' ? 30 : 23)
+      // Counts are DERIVED from the toolset lists, never hardcoded.
+      //
+      // Hardcoded counts were the root cause of finding F1 in the BannerScribe
+      // capability ledger: the literal "30" here was not just stale, it was
+      // unmaintainable, and it still passed because the assertion above compares
+      // the list against ITSELF. This repo has no tsconfig/typecheck step, so the
+      // only thing that compares the list against the actually registered surface
+      // is tests/legacy-tools.test.ts. Do not re-introduce a magic number here.
+      const expectedCount = QUERY_FIRST_BANNERLORD_TOOL_NAMES.length + (mode === 'full' ? AUTHORING_BANNERLORD_TOOL_NAMES.length : 0)
+      expect(result.names.length).toBe(expectedCount)
       expect(result.names.filter((name: string) => name.startsWith('bannerlord_editor_')).length).toBe(mode === 'full' ? 6 : 1)
       expect(result.status.state).toBe('not_configured')
     })

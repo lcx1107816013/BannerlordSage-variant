@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { PathSandbox } from './utils/path-sandbox'
 import { activeGameId, assetsPath } from './utils/env'
 import { getBannerlordToolsetMode } from './utils/bannerlord-toolset'
+import { LEGACY_GAMEPLAY_TOOL_NAMES, registerLegacyGameplayTools } from './tools/legacy-registrations'
 import { bannerlordIndexStatus } from './tools/bannerlord-index-status'
 import { bannerlordDoctor } from './tools/bannerlord-doctor'
 import { registerBannerlordEditorTools } from './tools/bannerlord-editor'
@@ -39,6 +40,13 @@ export const server = new McpServer({
 })
 
 registerBannerlordEditorTools(server, bannerlordToolsetMode)
+
+// Restore the 16 upstream gameplay + memory registrations that commit b80b55f
+// dropped (see tools/legacy-registrations.ts for the measurement behind this).
+// Registered unconditionally: they exist in both toolset modes, matching
+// upstream, where the mode only ever gated the authoring tools.
+registerLegacyGameplayTools(server)
+void LEGACY_GAMEPLAY_TOOL_NAMES
 
 server.registerTool(
   'bannerlord_doctor',

@@ -1,9 +1,17 @@
+import { LEGACY_GAMEPLAY_TOOL_NAMES } from '../tools/legacy-registrations'
+
 export type BannerlordToolsetMode = 'query-first' | 'full'
 
 export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'bannerlord_doctor',
   'bannerlord_index_status',
   'bannerlord_editor_status',
+  // ── legacy gameplay + memory tools restored from upstream @8311c9a ──────
+  // Listed INSIDE the query-first tier because upstream registered them
+  // unconditionally. An earlier variant had them in neither list while
+  // server.ts still registered them, so this list disagreed with reality and
+  // the registry test only passed because it asserted the list against itself.
+  ...LEGACY_GAMEPLAY_TOOL_NAMES,
   'project_memory_read',
   'project_memory_write',
   'mod_source_status',
