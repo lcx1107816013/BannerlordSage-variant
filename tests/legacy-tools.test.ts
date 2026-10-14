@@ -18,6 +18,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { resolve } from 'node:path'
+import { archiveToolName } from '../src/utils/tool-naming'
 
 const RESTORED = [
   'get_clan_summary',
@@ -36,28 +37,28 @@ const RESTORED = [
   'project_memory_recent',
   'project_memory_search',
   'project_memory_wakeup',
-] as const
+].map(archiveToolName)
 
 /** Read-only calls, chosen so the tool returns a deterministically non-empty report. */
 const READ_PROBES: Record<string, Record<string, unknown>> = {
-  get_clan_summary: { clanId: 'clan_empire_north_3' },
+  [archiveToolName('get_clan_summary')]: { clanId: 'clan_empire_north_3' },
   // culture ids are bare in bannerlord_cultures ('empire', 'aserai'), NOT
   // 'Culture.empire' — that prefixed form is the XML ref, not the key.
-  get_culture_summary: { cultureId: 'empire' },
-  get_hero_profile: { heroId: 'lord_1_1' },
-  get_item_stats: { itemId: 'saddle_horse' },
-  get_kingdom_summary: { kingdomId: 'empire' },
-  get_perk_data: { perkId: 'AthleticsBraced' },
-  get_policy_summary: { policyId: 'policy_bailiffs' },
-  get_settlement_summary: { settlementId: 'town_B1' },
-  get_skill_data: { skillId: 'IronFlesh1' },
-  trace_troop_tree: { characterId: 'vlandian_recruit' },
-  project_memory_recent: { limit: 1 },
+  [archiveToolName('get_culture_summary')]: { cultureId: 'empire' },
+  [archiveToolName('get_hero_profile')]: { heroId: 'lord_1_1' },
+  [archiveToolName('get_item_stats')]: { itemId: 'saddle_horse' },
+  [archiveToolName('get_kingdom_summary')]: { kingdomId: 'empire' },
+  [archiveToolName('get_perk_data')]: { perkId: 'AthleticsBraced' },
+  [archiveToolName('get_policy_summary')]: { policyId: 'policy_bailiffs' },
+  [archiveToolName('get_settlement_summary')]: { settlementId: 'town_B1' },
+  [archiveToolName('get_skill_data')]: { skillId: 'IronFlesh1' },
+  [archiveToolName('trace_troop_tree')]: { characterId: 'vlandian_recruit' },
+  [archiveToolName('project_memory_recent')]: { limit: 1 },
   // project_memory_search is excluded from the report-shape assertion: finding
   // nothing is a legitimate outcome and it renders a "No project memories
   // matched" line instead of a report. Its query safety is asserted separately.
-  project_memory_search: { query: 'bannerlordsage-memory', limit: 1 },
-  project_memory_wakeup: { limit: 1 },
+  [archiveToolName('project_memory_search')]: { query: 'bannerlordsage-memory', limit: 1 },
+  [archiveToolName('project_memory_wakeup')]: { limit: 1 },
 }
 
 /**
@@ -147,7 +148,7 @@ describe('restored legacy gameplay + memory tools', () => {
       // Every lookup tool renders a report header. `project_memory_search` is
       // exempt: a query with no hits legitimately renders an explanatory line
       // instead of a report, and its query safety is asserted by its own test.
-      else if (name !== 'project_memory_search') {
+      else if (name !== archiveToolName('project_memory_search')) {
         if (!res.text.includes('report_type:')) problems.push(`${name}: no report_type header`)
         else if (!res.text.includes('result_count:')) problems.push(`${name}: no result_count header`)
       }
@@ -159,12 +160,12 @@ describe('restored legacy gameplay + memory tools', () => {
     const fn = `
       {
         const marker='bannerscribe-regression-'+Date.now();
-        const a=await client.callTool({name:'project_memory_add',arguments:{text:marker,workspace:'bannerscribe',topic:'regression',kind:'note',importance:1}});
+        const a=await client.callTool({name:${JSON.stringify(archiveToolName('project_memory_add'))},arguments:{text:marker,workspace:'bannerscribe',topic:'regression',kind:'note',importance:1}});
         const at=a.content.find(x=>x.type==='text').text;
         const id=(at.match(/stored_memory_id:\\s*(\\S+)/)||[])[1];
-        const s=await client.callTool({name:'project_memory_search',arguments:{query:marker,limit:5}});
+        const s=await client.callTool({name:${JSON.stringify(archiveToolName('project_memory_search'))},arguments:{query:marker,limit:5}});
         const st=s.content.find(x=>x.type==='text').text;
-        const inv=await client.callTool({name:'project_memory_invalidate',arguments:{memoryId:id,reason:'automated regression probe'}});
+        const inv=await client.callTool({name:${JSON.stringify(archiveToolName('project_memory_invalidate'))},arguments:{memoryId:id,reason:'automated regression probe'}});
         const it=inv.content.find(x=>x.type==='text').text;
         out={id,added:at,found:st,invalidated:it};
       }`
@@ -211,7 +212,7 @@ describe('restored legacy gameplay + memory tools', () => {
       .map(
         (q, i) => `
         {
-          const r=await client.callTool({name:'project_memory_search',arguments:{query:${JSON.stringify(q)},limit:2}});
+          const r=await client.callTool({name:${JSON.stringify(archiveToolName('project_memory_search'))},arguments:{query:${JSON.stringify(q)},limit:2}});
           const t=r.content.find(x=>x.type==='text');
           out['q'+${i}]=JSON.stringify({q:${JSON.stringify(q)},isError:!!r.isError,text:t?t.text:''});
         }`,

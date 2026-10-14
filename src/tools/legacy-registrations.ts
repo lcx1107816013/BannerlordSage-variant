@@ -18,6 +18,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 
+import { archiveToolName } from '../utils/tool-naming'
+
 import { getClanSummary } from './get-clan-summary'
 import { getCultureSummary } from './get-culture-summary'
 import { getHeroProfile } from './get-hero-profile'
@@ -35,7 +37,14 @@ import { projectMemoryRecent } from './project-memory-recent'
 import { projectMemorySearch } from './project-memory-search'
 import { projectMemoryWakeup } from './project-memory-wakeup'
 
-/** Names restored by this module, in upstream order. */
+/**
+ * Names restored by this module, in upstream order — in LEGACY form.
+ *
+ * Legacy form on purpose: the toolset lists and the tests both run these
+ * through archiveToolName(), the same helper the registration calls use. One
+ * naming rule, one place, so a list cannot drift from the registered surface —
+ * which is precisely how the 16 tools were lost the first time.
+ */
 export const LEGACY_GAMEPLAY_TOOL_NAMES = [
   'project_memory_add',
   'project_memory_capture_session',
@@ -58,7 +67,7 @@ export const LEGACY_GAMEPLAY_TOOL_NAMES = [
 /** Register the 16 upstream gameplay + memory tools that b80b55f dropped. */
 export function registerLegacyGameplayTools(server: McpServer): void {
   server.registerTool(
-    'project_memory_add',
+    archiveToolName('project_memory_add'),
     {
       title: 'Add Project Memory',
       description:
@@ -88,7 +97,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
       await projectMemoryAdd(text, workspace, topic, kind, summary, source, tags, importance),
   )
   server.registerTool(
-    'project_memory_capture_session',
+    archiveToolName('project_memory_capture_session'),
     {
       title: 'Capture Session Memory',
       description:
@@ -128,7 +137,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
       ),
   )
   server.registerTool(
-    'project_memory_search',
+    archiveToolName('project_memory_search'),
     {
       title: 'Search Project Memory',
       description:
@@ -150,7 +159,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
       await projectMemorySearch(query, workspace, topic, kind, limit, includeInactive),
   )
   server.registerTool(
-    'project_memory_recent',
+    archiveToolName('project_memory_recent'),
     {
       title: 'Recent Project Memory',
       description:
@@ -171,7 +180,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
       await projectMemoryRecent(workspace, topic, kind, limit, includeInactive),
   )
   server.registerTool(
-    'project_memory_wakeup',
+    archiveToolName('project_memory_wakeup'),
     {
       title: 'Project Memory Wake-up',
       description:
@@ -188,7 +197,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ workspace, limit }) => await projectMemoryWakeup(workspace, limit),
   )
   server.registerTool(
-    'project_memory_invalidate',
+    archiveToolName('project_memory_invalidate'),
     {
       title: 'Invalidate Project Memory',
       description:
@@ -205,7 +214,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ memoryId, reason }) => await projectMemoryInvalidate(memoryId, reason),
   )
   server.registerTool(
-    'trace_troop_tree',
+    archiveToolName('trace_troop_tree'),
     {
       title: 'Trace Troop Tree',
       description:
@@ -221,7 +230,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ characterId }) => await traceTroopTree(characterId),
   )
   server.registerTool(
-    'get_item_stats',
+    archiveToolName('get_item_stats'),
     {
       title: 'Get Item Stats',
       description:
@@ -237,7 +246,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ itemId }) => await getItemStats(itemId),
   )
   server.registerTool(
-    'get_clan_summary',
+    archiveToolName('get_clan_summary'),
     {
       title: 'Get Clan Summary',
       description:
@@ -253,7 +262,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ clanId }) => await getClanSummary(clanId),
   )
   server.registerTool(
-    'get_policy_summary',
+    archiveToolName('get_policy_summary'),
     {
       title: 'Get Policy Summary',
       description:
@@ -269,7 +278,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ policyId }) => await getPolicySummary(policyId),
   )
   server.registerTool(
-    'get_hero_profile',
+    archiveToolName('get_hero_profile'),
     {
       title: 'Get Hero Profile',
       description:
@@ -285,7 +294,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ heroId }) => await getHeroProfile(heroId),
   )
   server.registerTool(
-    'get_perk_data',
+    archiveToolName('get_perk_data'),
     {
       title: 'Get Perk Data',
       description:
@@ -301,7 +310,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ perkId }) => await getPerkData(perkId),
   )
   server.registerTool(
-    'get_kingdom_summary',
+    archiveToolName('get_kingdom_summary'),
     {
       title: 'Get Kingdom Summary',
       description:
@@ -317,7 +326,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ kingdomId }) => await getKingdomSummary(kingdomId),
   )
   server.registerTool(
-    'get_culture_summary',
+    archiveToolName('get_culture_summary'),
     {
       title: 'Get Culture Summary',
       description:
@@ -333,7 +342,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ cultureId }) => await getCultureSummary(cultureId),
   )
   server.registerTool(
-    'get_settlement_summary',
+    archiveToolName('get_settlement_summary'),
     {
       title: 'Get Settlement Summary',
       description:
@@ -349,7 +358,7 @@ export function registerLegacyGameplayTools(server: McpServer): void {
     async ({ settlementId }) => await getSettlementSummary(settlementId),
   )
   server.registerTool(
-    'get_skill_data',
+    archiveToolName('get_skill_data'),
     {
       title: 'Get Skill Data',
       description:

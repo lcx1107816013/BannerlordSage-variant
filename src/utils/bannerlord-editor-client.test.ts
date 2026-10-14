@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { archiveToolName } from './tool-naming'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -175,10 +176,10 @@ describe('editor session and transport boundaries', () => {
 
 describe('public editor MCP schemas and registry', () => {
   test('default only exposes status; full exposes six tools without lifecycle operations', async () => {
-    expect((await (await mcp('query-first')).listTools()).tools.map(tool => tool.name)).toEqual(['bannerlord_editor_status'])
+    expect((await (await mcp('query-first')).listTools()).tools.map(tool => tool.name)).toEqual([archiveToolName('bannerlord_editor_status')])
     const full = (await (await mcp('full')).listTools()).tools.map(tool => tool.name).sort()
     expect(full).toEqual(['bannerlord_editor_status', 'bannerlord_editor_entities', 'bannerlord_editor_prefab_info',
-      'bannerlord_editor_apply_layout', 'bannerlord_editor_save_scene', 'bannerlord_editor_capture'].sort())
+      'bannerlord_editor_apply_layout', 'bannerlord_editor_save_scene', 'bannerlord_editor_capture'].map(archiveToolName).sort())
   })
 
   test('invalid layout IDs, transforms, extra fields and overlong batches cannot reach the engine', async () => {
@@ -187,7 +188,7 @@ describe('public editor MCP schemas and registry', () => {
     const invalid = [ [{ ...entity, x: 101 }], [{ ...entity, sx: 0 }], [{ ...entity, rx: 3601 }],
       [{ ...entity, id: '../foreign' }], [{ ...entity, delete: true }], [entity, entity], Array.from({ length: 65 }, () => entity) ]
     for (const entities of invalid) {
-      const reply = await client.callTool({ name: 'bannerlord_editor_apply_layout', arguments: { sessionPath: fixture.sessionPath, entities } })
+      const reply = await client.callTool({ name: archiveToolName('bannerlord_editor_apply_layout'), arguments: { sessionPath: fixture.sessionPath, entities } })
       expect(reply.isError).toBe(true)
     }
     expect(fixture.requests).toHaveLength(0)
@@ -197,7 +198,7 @@ describe('public editor MCP schemas and registry', () => {
     const fixture = await makeFixture(request => request.action === 'apply_layout'
       ? { ok: false, error: 'native creation failed', partial: true, appliedIds: ['dock'] } : undefined)
     const client = await mcp('full')
-    const result = await client.callTool({ name: 'bannerlord_editor_apply_layout', arguments: {
+    const result = await client.callTool({ name: archiveToolName('bannerlord_editor_apply_layout'), arguments: {
       sessionPath: fixture.sessionPath, entities: [{ id: 'dock', prefab: 'wooden_platform_a', x: 0, y: 0, z: 1 }],
     } })
     expect(result.isError).toBe(true)

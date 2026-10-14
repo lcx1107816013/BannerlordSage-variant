@@ -1,7 +1,17 @@
+import { archiveToolName } from './tool-naming'
 import { LEGACY_GAMEPLAY_TOOL_NAMES } from '../tools/legacy-registrations'
 
 export type BannerlordToolsetMode = 'query-first' | 'full'
 
+/**
+ * The canonical, CURRENT tool name lists.
+ *
+ * Every entry is written in its LEGACY form and passed through archiveToolName(),
+ * the same helper server.ts registers with. That is deliberate: a list written
+ * in current names would be a second, hand-maintained copy of the naming rule,
+ * and a drifted copy is exactly how 16 registered tools once went unnoticed
+ * (finding F1 in the BannerScribe capability ledger).
+ */
 export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'bannerlord_doctor',
   'bannerlord_index_status',
@@ -32,7 +42,7 @@ export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'generate_harmony_patch',
   'resolve_localization',
   'read_gauntlet_ui',
-] as const
+].map(archiveToolName)
 
 export const AUTHORING_BANNERLORD_TOOL_NAMES = [
   'create_mod_workspace',
@@ -42,7 +52,7 @@ export const AUTHORING_BANNERLORD_TOOL_NAMES = [
   'bannerlord_editor_apply_layout',
   'bannerlord_editor_save_scene',
   'bannerlord_editor_capture',
-] as const
+].map(archiveToolName)
 
 export function getBannerlordToolsetMode(): BannerlordToolsetMode {
   const configured = process.env.BANNERSAGE_TOOLSET?.trim().toLowerCase()

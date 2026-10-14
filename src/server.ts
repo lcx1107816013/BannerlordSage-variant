@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { PathSandbox } from './utils/path-sandbox'
 import { activeGameId, assetsPath } from './utils/env'
 import { getBannerlordToolsetMode } from './utils/bannerlord-toolset'
+import { archiveToolName } from './utils/tool-naming'
 import { LEGACY_GAMEPLAY_TOOL_NAMES, registerLegacyGameplayTools } from './tools/legacy-registrations'
 import { bannerlordIndexStatus } from './tools/bannerlord-index-status'
 import { bannerlordDoctor } from './tools/bannerlord-doctor'
@@ -49,7 +50,7 @@ registerLegacyGameplayTools(server)
 void LEGACY_GAMEPLAY_TOOL_NAMES
 
 server.registerTool(
-  'bannerlord_doctor',
+  archiveToolName('bannerlord_doctor'),
   {
     title: 'Bannerlord Doctor',
     description:
@@ -70,7 +71,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'bannerlord_index_status',
+  archiveToolName('bannerlord_index_status'),
   {
     title: 'Bannerlord Index Status',
     description:
@@ -85,7 +86,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'project_memory_write',
+  archiveToolName('project_memory_write'),
   {
     title: 'Write Project Memory',
     description:
@@ -118,7 +119,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'project_memory_read',
+  archiveToolName('project_memory_read'),
   {
     title: 'Read Project Memory',
     description:
@@ -142,7 +143,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'mod_source_status',
+  archiveToolName('mod_source_status'),
   {
     title: 'Local Mod Source Status',
     description: 'Inspect a local mod source workspace: resolved source root and indexed type/member counts.',
@@ -158,7 +159,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'index_mod_source',
+  archiveToolName('index_mod_source'),
   {
     title: 'Index Local Mod Source',
     description: 'Build or refresh the incremental C# index for a local mod source dir (reindexes only changed files).',
@@ -174,7 +175,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_mod_source',
+  archiveToolName('search_mod_source'),
   {
     title: 'Search Local Mod Source',
     description: 'ripgrep over your local mod source tree (not the imported decompile tree). Fastest for frequently edited mod code.',
@@ -194,7 +195,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'read_mod_file',
+  archiveToolName('read_mod_file'),
   {
     title: 'Read Local Mod File',
     description: 'Read a line slice from your local mod source tree (live files, edits visible immediately).',
@@ -213,7 +214,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'list_mod_directory',
+  archiveToolName('list_mod_directory'),
   {
     title: 'List Local Mod Directory',
     description: 'List files and subdirs under your local mod source workspace.',
@@ -230,7 +231,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'read_mod_type',
+  archiveToolName('read_mod_type'),
   {
     title: 'Read Local Mod Type',
     description: 'Read a class/struct/interface/enum definition from your local mod source (cache refreshes on change).',
@@ -248,7 +249,7 @@ server.registerTool(
 
 if (bannerlordToolsetMode === 'full') {
   server.registerTool(
-    'create_mod_workspace',
+  archiveToolName('create_mod_workspace'),
     {
       title: 'Create Mod Workspace',
       description:
@@ -279,7 +280,7 @@ if (bannerlordToolsetMode === 'full') {
 }
 
 server.registerTool(
-  'read_csharp_type',
+  archiveToolName('read_csharp_type'),
   {
     title: 'Read C# Type',
     description: 'Get the decompiled definition of a known Bannerlord type. Prefer over text search for classes/structs/enums.',
@@ -295,7 +296,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_source',
+  archiveToolName('search_source'),
   {
     title: 'Search Decompiled Source',
     description: 'ripgrep the decompiled C# source tree. Use when the exact type/method location is unknown.',
@@ -312,7 +313,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'read_file',
+  archiveToolName('read_file'),
   {
     title: 'Read Indexed File Slice',
     description: 'Read a slice of an indexed source or XML file. Read only the relevant region to save context.',
@@ -332,7 +333,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'list_directory',
+  archiveToolName('list_directory'),
   {
     title: 'List Indexed Directory',
     description: `Explore what has been imported into dist/games/${activeGameId}/assets before opening a file.`,
@@ -348,7 +349,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_xml',
+  archiveToolName('search_xml'),
   {
     title: 'Search XML Data',
     description: 'Full-text lookup across imported XML (ModuleData, Languages). Find which files mention an entity or token.',
@@ -364,7 +365,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_bannerlord_knowledge',
+  archiveToolName('search_bannerlord_knowledge'),
   {
     title: 'Search Bannerlord Knowledge',
     description:
@@ -383,7 +384,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_bannerlord_docs',
+  archiveToolName('search_bannerlord_docs'),
   {
     title: 'Search Bannerlord Docs',
     description:
@@ -402,7 +403,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'search_bannerlord_api_docs',
+  archiveToolName('search_bannerlord_api_docs'),
   {
     title: 'Search Bannerlord Official API Docs',
     description: 'Search official Bannerlord API Doxygen symbols. Reports version match; prefer decompiled source when versions differ.',
@@ -421,7 +422,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'get_entity',
+  archiveToolName('get_entity'),
   {
     title: 'Get Gameplay Entity',
     description:
@@ -443,7 +444,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'generate_harmony_patch',
+  archiveToolName('generate_harmony_patch'),
   {
     title: 'Generate Harmony Patch',
     description: 'Generate a Harmony patch scaffold for a known target method. Uses the AST method index, so overload/static details are correct.',
@@ -457,7 +458,7 @@ server.registerTool(
 
 if (bannerlordToolsetMode === 'full') {
   server.registerTool(
-    'generate_xslt_patch',
+  archiveToolName('generate_xslt_patch'),
     {
       title: 'Generate XSLT Patch',
       description: 'Generate an XSLT patch for Bannerlord XML instead of editing source XML directly.',
@@ -473,7 +474,7 @@ if (bannerlordToolsetMode === 'full') {
 }
 
 server.registerTool(
-  'resolve_localization',
+  archiveToolName('resolve_localization'),
   {
     title: 'Resolve Localization Token',
     description: 'Resolve a {=token}Fallback string to its localized text (Languages XML + source fallback literals).',
@@ -490,7 +491,7 @@ server.registerTool(
 )
 
 server.registerTool(
-  'read_gauntlet_ui',
+  archiveToolName('read_gauntlet_ui'),
   {
     title: 'Read Gauntlet UI',
     description: 'Get a ViewModel binding checklist for a Gauntlet UI XML: DataSource fields and click handlers.',

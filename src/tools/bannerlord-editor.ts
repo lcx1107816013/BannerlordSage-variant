@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { archiveToolName } from '../utils/tool-naming'
 import { z } from 'zod'
 import { editorStatus, editorToolResult } from '../utils/bannerlord-editor-client'
 
@@ -22,35 +23,35 @@ export const bannerlordEditorLayoutSchema = z.array(bannerlordEditorLayoutEntity
 })
 
 export function registerBannerlordEditorTools(server: McpServer, mode: 'query-first' | 'full') {
-  server.registerTool('bannerlord_editor_status', {
+  server.registerTool(archiveToolName('bannerlord_editor_status'), {
     title: 'Bannerlord Editor Status',
     description: 'Inspect the configured local editor bridge, version alignment and active scene. Returns a diagnostic when the bridge is unconfigured or disconnected.',
     inputSchema: { sessionPath }, annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ sessionPath }) => ({ content: [{ type: 'text' as const, text: JSON.stringify(await editorStatus(sessionPath)) }] }))
   if (mode !== 'full') return
-  server.registerTool('bannerlord_editor_entities', {
+  server.registerTool(archiveToolName('bannerlord_editor_entities'), {
     title: 'Bannerlord Editor Managed Entities',
     description: 'Read the managed layout objects in the active configured scene, including stable IDs, prefabs, GUIDs and transforms.',
     inputSchema: { sessionPath }, annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ sessionPath }) => editorToolResult('layout_entities', {}, sessionPath, true))
-  server.registerTool('bannerlord_editor_prefab_info', {
+  server.registerTool(archiveToolName('bannerlord_editor_prefab_info'), {
     title: 'Bannerlord Editor Prefab Info',
     description: 'Check a Native prefab in the active configured scene and read mesh bounds when available. Does not instantiate objects.',
     inputSchema: { sessionPath, prefab: z.string().min(1).max(128), mesh: z.string().min(1).max(128).optional() },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async ({ sessionPath, prefab, mesh }) => editorToolResult('prefab_info', { prefab, ...(mesh ? { mesh } : {}) }, sessionPath, true))
-  server.registerTool('bannerlord_editor_apply_layout', {
+  server.registerTool(archiveToolName('bannerlord_editor_apply_layout'), {
     title: 'Bannerlord Editor Apply Layout',
     description: 'Create or update up to 64 managed prefab roots in the active configured scene. Repeated IDs preserve objects and GUIDs; prefab conflicts are rejected. This changes the scene in memory; call save_scene explicitly to persist it.',
     inputSchema: { sessionPath, entities: bannerlordEditorLayoutSchema },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ sessionPath, entities }) => editorToolResult('apply_layout', { entities }, sessionPath, true))
-  server.registerTool('bannerlord_editor_save_scene', {
+  server.registerTool(archiveToolName('bannerlord_editor_save_scene'), {
     title: 'Bannerlord Editor Save Scene',
     description: 'Save the active configured dedicated scene. Does not close, replace or reload the scene.',
     inputSchema: { sessionPath }, annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ sessionPath }) => editorToolResult('save_scene', {}, sessionPath, true))
-  server.registerTool('bannerlord_editor_capture', {
+  server.registerTool(archiveToolName('bannerlord_editor_capture'), {
     title: 'Bannerlord Editor Capture',
     description: 'Return the native editor screenshot as a PNG image plus metadata. Captures its current view without moving the camera, changing scene metadata or reloading.',
     inputSchema: { sessionPath }, annotations: { readOnlyHint: true, openWorldHint: false },
