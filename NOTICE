@@ -1,16 +1,33 @@
 # NOTICE
 
-Bannerlord-Blore — **fully self-owned codebase**
+Bannerlord-Blore — an independent implementation of a Bannerlord MCP server
 Copyright (c) 2026 Bannerlord-Blore contributors — MIT (see `LICENSE`).
 
-## Status: clean-room rewrite complete (2026-10-16)
+## Status: rewrite in progress
 
-This repository **no longer contains any upstream-derived code**. Every source
-file under `src/` has been rewritten from scratch by this project's
-contributors as an original implementation of the same behavioral
-specification. A file-by-file blob-hash comparison against the historical
-upstream baseline (`8311c9a`) shows **zero byte-identical source files** in
-the working tree and at HEAD.
+This repository is a **from-scratch re-implementation** of an earlier
+`BannerlordSage` variant's behavioural specification. The rewrite is **not
+finished**: files are re-implemented as they are touched. A file that has not
+been touched yet remains **behaviourally identical** to the specification —
+tool names, output shapes, index schemas and CLI flags are preserved on purpose
+so that existing callers keep working.
+
+**What this means precisely** — because the difference matters to anyone
+relying on this notice:
+
+- The *behavioural specification* (tool names, report shapes, schema layouts,
+  CLI flags) is inherited from the historical upstream and is preserved
+  deliberately for compatibility.
+- Re-implemented files are this project's own code.
+- **Not every file has been re-implemented yet.** Files awaiting rewrite still
+  carry upstream-derived code, with prose added and no behavioural change.
+- A file-by-file blob-hash comparison against the historical baseline shows
+  **no byte-identical source file remains**, but a hash comparison tests
+  *textual identity only*. It does **not** establish that no file is derived:
+  adding a comment changes a hash while leaving the code untouched. The honest
+  summary is above, not the hash.
+
+Each rewrite step is verified against the previous behaviour before it lands.
 
 ## What the project is
 
@@ -21,37 +38,41 @@ C# indexing via Roslyn, project memory (FTS-backed, cross-session), path-
 sandboxed file access, workspace scaffolding, Harmony/XSLT patch generators,
 and a doctor/verify toolchain.
 
-## Historical note (recorded for provenance transparency only)
+## Historical note (provenance record)
 
 The project's lineage traces back to an unofficial variant of
 `BannerlordSage` (MIT, © 2026 Vortex, © 2026 hby7921) at upstream commit
-`8311c9a`. That heritage supplied the *behavioral specification* — tool
+`8311c9a`. That heritage supplied the *behavioural specification* — tool
 names, output shapes, index schemas, CLI flags — which this project
-deliberately preserves for user compatibility. The code implementing that
-specification is entirely ours:
+deliberately preserves for user compatibility.
 
-- Clean-room rewrite rule applied: implementers worked from exported
-  signatures and observable behavior; no upstream file was copied, adapted,
-  or mechanically transformed.
-- During the rewrite, ~640 lines of unreachable dead code (a full-rebuild
-  XML index path stranded after an early `return`) were removed; the
-  incremental path is the only implementation.
-- The walkFiles symlink blind spot (Vortex-style mod installs invisible to
-  the doctor) was fixed in this project earlier and remains ours.
-- The knowledge base (`knowledge/`, FTS-indexed) and the editor-preview
-  integration are this project's own additions.
+Upstream is MIT-licensed, and its copyright notice is retained in `LICENSE`
+because the parts of this repository that are not yet re-implemented are
+substantial portions of it. The MIT condition — that the copyright notice and
+permission notice be included in all copies — is therefore satisfied by
+keeping the notice, not by assuming it is no longer owed.
 
-Because the rewrite is complete, **no attribution to the historical upstream
-is required** by license, though this notice preserves the lineage record.
+This project is **not affiliated with or endorsed by** the upstream author.
+
+## Notable changes already carried by this project
+
+- ~640 lines of unreachable dead code (a full-rebuild XML index path stranded
+  after an early `return`) removed; the incremental path is the only
+  implementation.
+- The `walkFiles` symlink blind spot (Vortex-style mod installs invisible to
+  the doctor) fixed, with the fix retained through the rewrite.
+- `knowledge/` (FTS-indexed) and the editor-preview integration are this
+  project's own additions.
 
 ## Runtime dependencies
 
-Bun-native (bun:sqlite, bun test). No new runtime dependency was introduced
-by the rewrite; the dependency set is unchanged in kind.
+Bun-native (bun:sqlite, bun test). The rewrite introduced no new runtime
+dependency.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See `LICENSE` — which carries both this project's copyright and the
+upstream copyright notice, because both apply to what is currently shipped.
 
 ## Trademarks
 

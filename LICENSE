@@ -2,6 +2,33 @@ MIT License
 
 Copyright (c) 2026 Bannerlord-Blore contributors
 
+────────────────────────────────────────────────────────────────────────────────
+Upstream notice
+────────────────────────────────────────────────────────────────────────────────
+
+This project is an independent implementation of the behavioural specification
+of BannerlordSage, an unofficial variant of which was its starting point:
+
+    https://github.com/hby7921/BannerlordSage
+
+    Copyright (c) 2026 Vortex
+    Copyright (c) 2026 hby7921
+
+BannerlordSage is licensed under the MIT License. Its copyright notices are
+reproduced above to satisfy the MIT condition that "the above copyright notice
+and this permission notice shall be included in all copies or substantial
+portions of the Software".
+
+This is required rather than optional: source files that have not yet been
+re-implemented still carry upstream code, so portions of this repository are
+covered by the upstream notice. See NOTICE for the current rewrite status.
+
+This project is **not affiliated with or endorsed by** the upstream authors.
+
+────────────────────────────────────────────────────────────────────────────────
+MIT License text (applies to this project, the upstream above, and the notices herein)
+────────────────────────────────────────────────────────────────────────────────
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
