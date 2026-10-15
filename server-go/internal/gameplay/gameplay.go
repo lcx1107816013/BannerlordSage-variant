@@ -141,11 +141,13 @@ func parseIDList(raw string) []string {
 func referenceLabels(db *sql.DB, ids []string, resolve func(string) (string, bool, error), preferred []string) ([]report.Scalar, error) {
 	values := make([]report.Scalar, 0, len(ids))
 	for _, id := range ids {
-		name, ok, err := resolve(id)
+		name, _, err := resolve(id)
 		if err != nil {
 			return nil, err
 		}
-		label, err := entityresolver.FormatReferenceLabel(db, id, name, ok, preferred)
+		// ★ the resolver's "found" flag is deliberately dropped: formatReferenceLabel decides on the
+		// VALUE (empty means absent), not on whether a row existed.
+		label, err := entityresolver.FormatReferenceLabel(db, id, name, preferred)
 		if err != nil {
 			return nil, err
 		}
@@ -525,20 +527,20 @@ func GetClanSummary(db *sql.DB, clanID string, preferred []string) (string, erro
 			return "", err
 		}
 
-		cultureName, cultureOK, err := entityresolver.LookupCultureName(db, r.culture.String)
+		cultureName, _, err := entityresolver.LookupCultureName(db, r.culture.String)
 		if err != nil {
 			return "", err
 		}
-		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, cultureOK, preferred)
+		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, preferred)
 		if err != nil {
 			return "", err
 		}
 
-		ownerName, ownerOK, err := entityresolver.LookupHeroName(db, r.owner.String)
+		ownerName, _, err := entityresolver.LookupHeroName(db, r.owner.String)
 		if err != nil {
 			return "", err
 		}
-		ownerRef, err := entityresolver.FormatReferenceLabel(db, r.owner.String, ownerName, ownerOK, preferred)
+		ownerRef, err := entityresolver.FormatReferenceLabel(db, r.owner.String, ownerName, preferred)
 		if err != nil {
 			return "", err
 		}
@@ -562,11 +564,11 @@ func GetClanSummary(db *sql.DB, clanID string, preferred []string) (string, erro
 		}
 		var superRef report.Scalar
 		if r.superFaction.String != "" || (superInfo != nil && superInfo.Name != "") {
-			superName, superOK := "", false
+			superName := ""
 			if superInfo != nil {
-				superName, superOK = superInfo.Name, true
+				superName = superInfo.Name
 			}
-			label, err := entityresolver.FormatReferenceLabel(db, r.superFaction.String, superName, superOK, preferred)
+			label, err := entityresolver.FormatReferenceLabel(db, r.superFaction.String, superName, preferred)
 			if err != nil {
 				return "", err
 			}
@@ -609,14 +611,16 @@ func GetClanSummary(db *sql.DB, clanID string, preferred []string) (string, erro
 // formatSettlementRef mirrors the settlement-reference pattern:
 // `raw || name ? formatReferenceLabel(raw, name) : null`.
 func formatSettlementRef(db *sql.DB, raw string, info *entityresolver.SettlementInfo, preferred []string) (report.Scalar, error) {
-	name, ok := "", false
+	name := ""
 	if info != nil {
-		name, ok = info.Name, true
+		name = info.Name
 	}
-	if raw == "" && !(ok && name != "") {
+	// The guard is the same truthiness test formatReferenceLabel applies internally, written out
+	// here because this call site must produce a NULL rather than a label when both sides are blank.
+	if raw == "" && name == "" {
 		return report.Null(), nil
 	}
-	label, err := entityresolver.FormatReferenceLabel(db, raw, name, ok, preferred)
+	label, err := entityresolver.FormatReferenceLabel(db, raw, name, preferred)
 	if err != nil {
 		return report.Null(), err
 	}
@@ -686,20 +690,20 @@ func GetKingdomSummary(db *sql.DB, kingdomID string, preferred []string) (string
 			return "", err
 		}
 
-		cultureName, cultureOK, err := entityresolver.LookupCultureName(db, r.culture.String)
+		cultureName, _, err := entityresolver.LookupCultureName(db, r.culture.String)
 		if err != nil {
 			return "", err
 		}
-		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, cultureOK, preferred)
+		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, preferred)
 		if err != nil {
 			return "", err
 		}
 
-		ownerName, ownerOK, err := entityresolver.LookupHeroName(db, r.owner.String)
+		ownerName, _, err := entityresolver.LookupHeroName(db, r.owner.String)
 		if err != nil {
 			return "", err
 		}
-		ownerRef, err := entityresolver.FormatReferenceLabel(db, r.owner.String, ownerName, ownerOK, preferred)
+		ownerRef, err := entityresolver.FormatReferenceLabel(db, r.owner.String, ownerName, preferred)
 		if err != nil {
 			return "", err
 		}
@@ -1087,7 +1091,7 @@ func describeFactionReference(db *sql.DB, reference string, preferred []string) 
 		return "", "", err
 	}
 	if clan != nil {
-		ownerLabel, err := entityresolver.FormatReferenceLabel(db, reference, clan.Name, true, preferred)
+		ownerLabel, err := entityresolver.FormatReferenceLabel(db, reference, clan.Name, preferred)
 		if err != nil {
 			return "", "", err
 		}
@@ -1097,7 +1101,7 @@ func describeFactionReference(db *sql.DB, reference string, preferred []string) 
 		}
 		kingdomLabel := ""
 		if kingdom != nil {
-			kingdomLabel, err = entityresolver.FormatReferenceLabel(db, clan.SuperFaction, kingdom.Name, true, preferred)
+			kingdomLabel, err = entityresolver.FormatReferenceLabel(db, clan.SuperFaction, kingdom.Name, preferred)
 			if err != nil {
 				return "", "", err
 			}
@@ -1110,7 +1114,7 @@ func describeFactionReference(db *sql.DB, reference string, preferred []string) 
 		return "", "", err
 	}
 	if kingdom != nil {
-		label, err := entityresolver.FormatReferenceLabel(db, reference, kingdom.Name, true, preferred)
+		label, err := entityresolver.FormatReferenceLabel(db, reference, kingdom.Name, preferred)
 		if err != nil {
 			return "", "", err
 		}
@@ -1218,11 +1222,11 @@ func GetSettlementSummary(db *sql.DB, settlementID string, preferred []string) (
 			return "", err
 		}
 
-		cultureName, cultureOK, err := entityresolver.LookupCultureName(db, r.culture.String)
+		cultureName, _, err := entityresolver.LookupCultureName(db, r.culture.String)
 		if err != nil {
 			return "", err
 		}
-		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, cultureOK, preferred)
+		cultureRef, err := entityresolver.FormatReferenceLabel(db, r.culture.String, cultureName, preferred)
 		if err != nil {
 			return "", err
 		}

@@ -239,23 +239,23 @@ func TestGameplayReferenceLabelsMatchTypeScript(t *testing.T) {
 		if c.Raw != nil {
 			raw = *c.Raw
 		}
-		name, known := "", false
+		name := ""
 		if c.Name != nil {
-			name, known = *c.Name, true
+			name = *c.Name
 		}
-		// The TypeScript treats an EMPTY displayed name as absent (`displayName` truthiness),
-		// so mirror that before calling.
-		if known && name == "" {
-			known = false
-		}
-		got, err := entityresolver.FormatReferenceLabel(db, raw, name, known, nil)
+		// ★ NO TRUTHINESS JUGGLING HERE ANY MORE. formatReferenceLabel applies `if (displayName)`
+		// itself, so an empty name takes the raw-reference branch inside the function. The previous
+		// version of this test converted `known && name == ""` into `known = false` at the CALL SITE,
+		// which is precisely the shape that hid the defect: every other caller had to remember the
+		// same conversion, and the ones that forgot produced `unknown [ref]` instead of `ref`.
+		got, err := entityresolver.FormatReferenceLabel(db, raw, name, nil)
 		if err != nil {
 			t.Errorf("FormatReferenceLabel(%q, %q) errored: %v", raw, name, err)
 			continue
 		}
 		if got != c.Result {
-			t.Errorf("FormatReferenceLabel(%q, name=%q known=%v) = %q, TS = %q",
-				raw, name, known, got, c.Result)
+			t.Errorf("FormatReferenceLabel(%q, name=%q) = %q, TS = %q",
+				raw, name, got, c.Result)
 		}
 	}
 }

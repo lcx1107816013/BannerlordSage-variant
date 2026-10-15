@@ -205,12 +205,22 @@ func LookupSettlementInfo(db *sql.DB, reference string) (*SettlementInfo, error)
 
 // FormatReferenceLabel mirrors formatReferenceLabel.
 //
-// The shape is `"<localized name> [<raw ref>]"` when both are known, and just the raw reference
-// when the name is missing. Note `rawReference || 'unknown'` — an EMPTY raw reference with no
-// name yields "unknown", while a FALSY-but-present one cannot occur since the type is
-// string|null.
-func FormatReferenceLabel(db *sql.DB, rawReference string, displayName string, displayNameKnown bool, preferred []string) (string, error) {
-	if displayNameKnown {
+// ★ IT APPLIES THE TRUTHINESS TEST ITSELF, AND THAT IS THE WHOLE POINT OF THE SIGNATURE. The
+// TypeScript writes `if (displayName)`, so a NULL name, a MISSING name and an EMPTY-STRING name all
+// take the same branch. An earlier version of this port took a `displayNameKnown bool` and pushed
+// that decision onto callers — which is exactly how the differential caught it: with a row whose
+// name is `”` the lookup reports the value as PRESENT, the caller therefore said "known", and the
+// port produced `unknown [Hero.x]` where the TypeScript produces `Hero.x`.
+//
+// ★ THE REAL INDEX DOES NOT EXERCISE THE EMPTY-STRING CASE — measured: 0 of the culture, troop, clan,
+// kingdom, policy and settlement rows carry `”` (troops has 20 NULLs, which both sides treat the
+// same). It is reachable the moment a mod ships an empty name, so the port reproduces the rule
+// rather than the current data.
+//
+// The shape is `"<localized name> [<raw ref>]"` when both are present, the localized name alone when
+// the reference is absent, the bare reference when the name is absent, then `"unknown"`.
+func FormatReferenceLabel(db *sql.DB, rawReference string, displayName string, preferred []string) (string, error) {
+	if displayName != "" {
 		localized, err := localization.ResolveMaybeLocalizedText(db, displayName, preferred)
 		if err != nil {
 			return "", err
