@@ -13,7 +13,14 @@ coverage/
 .env.*
 
 # Local databases and SQLite sidecars
+#
+# ★ An exception follows for the parity fixtures. Their SQLite databases ARE the expected
+# values: the store and search_xml suites open them and compare against what the TypeScript
+# recorded, so they must be committed. Without the negation below, `*.db` excludes them and
+# those suites pass on the machine that generated them while failing on every fresh clone —
+# and neither run would be lying. Same class of trap as a fixture under dist/.
 *.db
+!server-go/tools/parity/fixtures/*.db
 *.db-shm
 *.db-wal
 *.sqlite

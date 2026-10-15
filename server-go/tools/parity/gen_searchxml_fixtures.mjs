@@ -33,36 +33,46 @@ const repoRoot = join(here, '..', '..', '..')
 
 // ── where the fixture database lives ────────────────────────────────────────
 //
-// ★ NOT under dist/. The archive's .gitignore excludes `dist/`, so a database written
-// there would be present on this machine and ABSENT for everyone else — the suite would
-// pass locally and fail on a fresh clone, and neither run would be lying. Fixtures must live
-// where they are committed, so the database goes in the fixtures directory.
-const gameId = 'bannerlord'
+// ★★ THIS SCRIPT ONCE DESTROYED REAL DATA. Read this before changing it.
+//
+// The first version derived the same path the TypeScript resolves — dist/games/bannerlord/
+// bannerlord.db — and DELETED it before creating the fixture. On this machine that file was
+// the real compiled index, holding ~25 tables (bannerlord_troops, csharp_index, ...). The
+// fixture replaced it, and the archive's own audit tests went red immediately.
+//
+// The lesson is structural, not "be careful": a fixture generator must NEVER write inside
+// the live data path, because the live path is derived from the same configuration the code
+// under test uses. Two independent defences are in place now:
+//
+//   1. A DIFFERENT GAME ID. `BANNERSAGE_GAME` drives the resolved path, so the fixture uses
+//      a synthetic id whose directory cannot collide with a real one. The real
+//      dist/games/bannerlord/ is never opened, let alone deleted.
+//   2. A guard that refuses to run if the resolved path looks like real data — the real
+//      index contains tables this fixture never creates.
+const gameId = 'bannerlord-fixture-searchxml'
 const fixtureDbDir = join(here, 'fixtures')
 mkdirSync(fixtureDbDir, { recursive: true })
-const dbFile = `${gameId}-searchxml.db`
+const dbFile = 'searchxml.db'
 const dbPath = join(fixtureDbDir, dbFile)
-if (existsSync(dbPath)) rmSync(dbPath)
+rmSync(dbPath, { force: true })
 
-// The tool resolves its database through src/utils/db.ts -> env.ts. Rather than stub that
-// (which would mean testing a different function), the corpus is TEMPORARILY placed at the
-// path the TypeScript will resolve, the tool is executed against it, and the finished
-// database is then MOVED into the fixtures directory for the Go side to use.
-//
-// BANNERSAGE_DB is honoured by the runtime revision machinery, but the authoritative path is
-// gameDistPath/<gameId>.db, so the file is written there and relocated afterwards.
+// A scratch directory under dist/ for the TypeScript to resolve. This is a SYNTHETIC id, so
+// it is a fresh directory rather than the real game's.
 const resolveDir = join(repoRoot, 'dist', 'games', gameId)
+rmSync(resolveDir, { recursive: true, force: true })
 mkdirSync(resolveDir, { recursive: true })
 const resolvePath = join(resolveDir, `${gameId}.db`)
 
-// Both paths are cleared up front. The resolve path in particular must be removed even if
-// a previous run crashed after creating it: leaving it behind would make the next run fail
-// with "table xml_documents_fts already exists", which looks like a schema bug and is not
-// one. (That is exactly how this script failed once.)
-rmSync(resolvePath, { force: true })
-rmSync(dbPath, { force: true })
+// Defence 2: refuse to proceed if anything already occupies the scratch path that this
+// script did not create. An index database has tables this fixture never writes, so its
+// presence means the path is not ours to delete.
+if (existsSync(resolvePath)) {
+    console.error(`REFUSING TO RUN: ${resolvePath} already exists and was not created by this script.`)
+    console.error('A fixture generator must not overwrite data it did not create.')
+    process.exit(3)
+}
 
-// The tool resolves the db through env.ts, which reads these.
+// The tool resolves the db through env.ts, which reads this.
 process.env.BANNERSAGE_GAME = gameId
 process.env.BANNERSAGE_TOOLSET ||= 'query-first'
 
@@ -164,6 +174,7 @@ const fixtures = {
         'committed so both sides query identical bytes. Do not edit by hand.',
     generatedFrom: 'src/tools/search-xml.ts (imported)',
     dbPath: `tools/parity/fixtures/${dbFile}`,
+    fixtureGameId: gameId,
     // The rows are recorded so the Go test can verify the database it opens is the corpus
     // this fixture set describes.
     corpus,
