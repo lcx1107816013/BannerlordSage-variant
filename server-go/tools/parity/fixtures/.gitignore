@@ -1,0 +1,18 @@
+# ★ THESE TWO TREES ARE NOT COMMITTED, AND THE REASON IS THE WHOLE POINT OF THEM.
+#
+# Each is a small filesystem tree that the runtime-check differential probes. One case in the
+# predicate tree is "a directory that EXISTS AND IS EMPTY", another is "a path that is a FILE used
+# as a directory". Git cannot track an empty directory at all, so committing the tree would need a
+# placeholder file inside it — and that file would destroy the case it was meant to preserve: the
+# directory would no longer be empty, `directoryHasFiles` would return true, and the case would keep
+# passing while testing nothing.
+#
+# So the SHAPE lives in the fixture JSON (written by the same generators that recorded the
+# expectations), and both sides build the tree from it: the TypeScript generator before it executes
+# the real module, and the Go test before it compares. One description, two consumers — and a fresh
+# clone builds exactly the tree the expectations were recorded against, because it is the same list.
+#
+# Verified by deleting both trees and running the suite: it rebuilds them and passes. That is the
+# check a new clone performs, and tools/parity/README.md records the failure it prevents.
+runtimecheck-tree/
+runtimecheck-probe-tree/
