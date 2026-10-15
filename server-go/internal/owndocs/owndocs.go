@@ -10,6 +10,7 @@ package owndocs
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 
@@ -229,37 +230,64 @@ func SplitMarkdownIntoSections(markdown string) []MarkdownSection {
 	return sections
 }
 
-// matchH2 mirrors `/^##\s+(.+?)\s*$/`.
+// The two heading patterns from src/utils/own-docs.ts, TRANSLATED RATHER THAN SIMULATED.
 //
-// ★ EXACTLY TWO HASHES: `###` does not match, because the third character is a hash rather than
-// whitespace. And at least one whitespace character is REQUIRED, so `##heading` is body text.
+// ★ THE FIRST VERSION OF THIS FILE HAND-WROTE THE MATCHERS, AND HAND-WRITING WAS THE MISTAKE. Both
+// patterns depend on the interaction between a GREEDY `\s+` and a LAZY `(.+?)`, and the interaction
+// is not something a reader should re-derive: a `##` line with ONE whitespace character is body text
+// while TWO OR MORE make a heading whose text is the last whitespace character — and that is only the
+// beginning of it, because `titleFromFile` runs its pattern over the WHOLE document, where `\s+` can
+// absorb a NEWLINE and make the following line the heading.
 //
-// ★ A LINE OF JUST HASHES AND SPACES DOES NOT MATCH, because the lazy `(.+?)` needs at least one
-// character that the trailing `\s*` cannot also consume. So `## ` falls through into the body —
-// measured against the TypeScript rather than reasoned about.
-//
-// The capture is the line with the leading `##` and whitespace removed and the TRAILING whitespace
-// removed, with any interior whitespace preserved.
+// Go's regexp package is defined to return the match "a backtracking search starting at the beginning
+// of the input would have found", so it reproduces these engines' semantics exactly — including lazy
+// quantifiers — and the only thing that has to be written out is the WHITESPACE CLASS, which differs:
+// Go's `\s` is `[	\n\f\r ]` while ECMAScript's adds the Unicode spaces and the BOM.
+const (
+	jsWhitespaceClass = `	\n\v\f\r \x{00a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}\x{feff}`
+	// `^##\s+(.+?)\s*$` applied to ONE LINE, so `^`/`$` are plain anchors and no /m is involved.
+	h2Pattern = `^##[` + jsWhitespaceClass + `]+(.+?)[` + jsWhitespaceClass + `]*$`
+	// `^#\s+(.+?)\s*$/m` applied to the WHOLE document: `/m` makes `^`/`$` match at line boundaries,
+	// and because the subject is the whole text, `\s+` may CONSUME a newline.
+	h1Pattern = `(?m)^#[` + jsWhitespaceClass + `]+(.+?)[` + jsWhitespaceClass + `]*$`
+)
+
+var (
+	h2Regexp = regexp.MustCompile(h2Pattern)
+	h1Regexp = regexp.MustCompile(h1Pattern)
+)
+
+// matchH2 mirrors `/^##\s+(.+?)\s*$/` against a single line.
 func matchH2(line string) (string, bool) {
-	if !strings.HasPrefix(line, "##") {
+	m := h2Regexp.FindStringSubmatch(line)
+	if m == nil {
 		return "", false
 	}
-	rest := line[2:]
-	if rest == "" || (rest[0] != ' ' && rest[0] != '\t' && rest[0] != '\n' && rest[0] != '\r' &&
-		rest[0] != '\v' && rest[0] != '\f' && !isUnicodeSpace(rest[0])) {
+	return m[1], true
+}
+
+// firstH1 mirrors `/^#\s+(.+?)\s*$/m` and the `.trim()` the caller applies to the capture.
+//
+// ★ IT RUNS OVER THE WHOLE TEXT, WHICH IS WHY IT MAY SWALLOW A NEWLINE. Measured with bun 1.4.3:
+//
+//	"#  \nbody after a blank h1\n"  -> match, capture "body after a blank h1"
+//	"#  \n\nsecond blank line\n"    -> match, capture "second blank line"
+//	"#  "                           -> match, capture " " -> trimmed ""
+//	"# \nbody\n"                    -> match, capture "body"
+//
+// So a blank H1 line does not yield an empty title when text FOLLOWS it — it yields the following
+// line's text. An earlier version of this function split the document into lines first, which makes
+// the newline unavailable to `\s+` and produced an empty title for the first two rows above: a real
+// divergence that the corpus surfaced as soon as the shape was enumerated instead of sampled.
+//
+// The returned value is the TRIMMED capture, so it can be empty while `matched` is true — the caller
+// tests the MATCH, which is what decides whether the path fallback applies.
+func firstH1(text string) (string, bool) {
+	m := h1Regexp.FindStringSubmatch(text)
+	if m == nil {
 		return "", false
 	}
-	// `\s+` consumes one or more whitespace characters.
-	trimmed := strings.TrimLeftFunc(rest, isJSSpaceRune)
-	if trimmed == "" {
-		return "", false
-	}
-	// `(.+?)\s*$`: the capture ends before any trailing whitespace run, and must be non-empty.
-	body := strings.TrimRightFunc(trimmed, isJSSpaceRune)
-	if body == "" {
-		return "", false
-	}
-	return body, true
+	return report.TrimJS(m[1]), true
 }
 
 func isUnicodeSpace(b byte) bool {
@@ -411,26 +439,17 @@ func TitleFromFile(markdown, filePath, knowledgeRoot string) string {
 	return slashed
 }
 
-// firstH1 mirrors `/^#\s+(.+?)\s*$/m`.
-func firstH1(text string) (string, bool) {
-	for _, line := range strings.Split(text, "\n") {
-		if !strings.HasPrefix(line, "#") {
-			continue
-		}
-		rest := line[1:]
-		if rest == "" || !isJSSpaceRune(rune(rest[0])) {
-			continue
-		}
-		trimmed := strings.TrimLeftFunc(rest, isJSSpaceRune)
-		body := strings.TrimRightFunc(trimmed, isJSSpaceRune)
-		if body == "" {
-			continue
-		}
-		return body, true
-	}
-	return "", false
-}
-
+// firstH1 mirrors `/^#\s+(.+?)\s*$/m` and the `.trim()` the caller applies to its capture.
+//
+// ★ IT HAS THE SAME TWO-CHARACTER RULE AS matchH2, for the same reason: `\s+` needs one character
+// and `(.+?)` needs another, so `#  ` (two spaces) matches with the capture `" "`, and the caller's
+// `.trim()` then turns that into `""`. So the RETURNED value is empty for an all-whitespace heading
+// even though the regex matched — and `titleFromFile` checks `if (h1)` on the MATCH, not on the
+// trimmed text, so an empty heading still SUPPRESSES the path fallback and yields `""`.
+//
+// That distinction is why this returns (value, matched) rather than just the value: callers must be
+// able to tell "matched but empty" from "did not match".
+//
 // BuildOwnDocRows mirrors buildOwnDocRows.
 //
 // ★ AN UNREADABLE FILE IS SKIPPED, not reported: `readFileSync` is inside a try/catch that

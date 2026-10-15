@@ -93,15 +93,32 @@ const SHAPE = {
     'knowledge/unclosed.md': '---' + NL + 'title: y' + NL + 'no closer here',
     // 5. the `---` appears but not at the start
     'knowledge/not-at-start.md': 'text' + NL + '---' + NL + 'title: z' + NL + '---' + NL + 'body',
-    // 6. heading edge cases
+    // 6. heading edge cases.
+    //
+    // ★ THE WHITESPACE RUN LENGTH IS THE VARIABLE, so it is ENUMERATED rather than sampled. A `##`
+    // line with ONE whitespace character is body text while TWO OR MORE make a heading whose text is
+    // the last whitespace character — and I had initially recorded the wrong rule because I measured
+    // only the one-space case.
     'knowledge/headings.md': [
       '# headings',
       '',
       '## ',
-      'after an empty heading line',
+      'after a one-space heading line',
+      '',
+      '##  ',
+      'after a two-space heading line',
+      '',
+      '##   ',
+      'after a three-space heading line',
+      '',
+      '##		',
+      'after a two-tab heading line',
       '',
       '### three hashes',
       'body after h3',
+      '',
+      '#### four hashes',
+      'body after h4',
       '',
       '##Heading without a space',
       'body after that',
@@ -120,6 +137,11 @@ const SHAPE = {
     'knowledge/only-frontmatter.md': '---' + NL + 'a: b' + NL + '---' + NL,
     // 8. a document with no heading at all
     'knowledge/no-heading.md': 'just text, no h1 no h2' + NL,
+    // ★ AN H1 THAT IS PURE WHITESPACE. The regex MATCHES (`#  ` is two characters of whitespace) and
+    // the caller trims the capture to "", so titleFromFile returns an EMPTY title rather than falling
+    // back to the path — because it tests the MATCH, not the trimmed text.
+    'knowledge/blank-h1.md': '#  ' + NL + 'body after a blank h1' + NL,
+    'knowledge/one-space-h1.md': '# ' + NL + 'body after a one-space h1' + NL,
     // 9. uppercase extension
     'knowledge/UPPER.MD': '# Upper Case Extension' + NL + 'body' + NL,
     // 10. not markdown at all

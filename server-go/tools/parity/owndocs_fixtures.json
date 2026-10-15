@@ -15,10 +15,12 @@
       "knowledge/unterminated.md": "---\ntitle: x\n---",
       "knowledge/unclosed.md": "---\ntitle: y\nno closer here",
       "knowledge/not-at-start.md": "text\n---\ntitle: z\n---\nbody",
-      "knowledge/headings.md": "# headings\n\n## \nafter an empty heading line\n\n### three hashes\nbody after h3\n\n##Heading without a space\nbody after that\n\n##   spaced   heading   \nbody after spaced\n\n## 中文标题\n正文\n\n## かなのかき\nkana body",
+      "knowledge/headings.md": "# headings\n\n## \nafter a one-space heading line\n\n##  \nafter a two-space heading line\n\n##   \nafter a three-space heading line\n\n##\t\t\nafter a two-tab heading line\n\n### three hashes\nbody after h3\n\n#### four hashes\nbody after h4\n\n##Heading without a space\nbody after that\n\n##   spaced   heading   \nbody after spaced\n\n## 中文标题\n正文\n\n## かなのかき\nkana body",
       "knowledge/empties.md": "# empties\n## Has Heading But No Body\n## Second Empty",
       "knowledge/only-frontmatter.md": "---\na: b\n---\n",
       "knowledge/no-heading.md": "just text, no h1 no h2\n",
+      "knowledge/blank-h1.md": "#  \nbody after a blank h1\n",
+      "knowledge/one-space-h1.md": "# \nbody after a one-space h1\n",
       "knowledge/UPPER.MD": "# Upper Case Extension\nbody\n",
       "knowledge/notes.txt": "# Not Markdown\nbody\n",
       "knowledge/modding/deeper/deep.md": "# Deep\n## Deep Section\ndeep body\n",
@@ -108,7 +110,22 @@
         {
           "slug": "intro",
           "heading": "",
-          "content": "# headings\n\n## \nafter an empty heading line\n\n### three hashes\nbody after h3\n\n##Heading without a space\nbody after that"
+          "content": "# headings\n\n## \nafter a one-space heading line"
+        },
+        {
+          "slug": "section",
+          "heading": " ",
+          "content": "after a two-space heading line"
+        },
+        {
+          "slug": "section",
+          "heading": " ",
+          "content": "after a three-space heading line"
+        },
+        {
+          "slug": "section",
+          "heading": "\t",
+          "content": "after a two-tab heading line\n\n### three hashes\nbody after h3\n\n#### four hashes\nbody after h4\n\n##Heading without a space\nbody after that"
         },
         {
           "slug": "spaced-heading",
@@ -161,6 +178,28 @@
           "slug": "intro",
           "heading": "",
           "content": "just text, no h1 no h2"
+        }
+      ]
+    },
+    {
+      "kind": "sections",
+      "file": "knowledge/blank-h1.md",
+      "result": [
+        {
+          "slug": "intro",
+          "heading": "",
+          "content": "#  \nbody after a blank h1"
+        }
+      ]
+    },
+    {
+      "kind": "sections",
+      "file": "knowledge/one-space-h1.md",
+      "result": [
+        {
+          "slug": "intro",
+          "heading": "",
+          "content": "# \nbody after a one-space h1"
         }
       ]
     },
@@ -435,6 +474,14 @@
       "result": "../server-go/tools/parity/fixtures/owndocs-tree/knowledge/no-heading"
     },
     {
+      "file": "knowledge/blank-h1.md",
+      "result": "body after a blank h1"
+    },
+    {
+      "file": "knowledge/one-space-h1.md",
+      "result": "body after a one-space h1"
+    },
+    {
       "file": "knowledge/UPPER.MD",
       "result": "Upper Case Extension"
     },
@@ -463,12 +510,14 @@
       ],
       "files": [
         "knowledge/UPPER.MD",
+        "knowledge/blank-h1.md",
         "knowledge/empties.md",
         "knowledge/frontmatter.md",
         "knowledge/headings.md",
         "knowledge/modding/deeper/deep.md",
         "knowledge/no-heading.md",
         "knowledge/not-at-start.md",
+        "knowledge/one-space-h1.md",
         "knowledge/only-frontmatter.md",
         "knowledge/plain.md",
         "knowledge/unclosed.md",
@@ -484,12 +533,14 @@
       "files": [
         "extra/extra-doc.md",
         "knowledge/UPPER.MD",
+        "knowledge/blank-h1.md",
         "knowledge/empties.md",
         "knowledge/frontmatter.md",
         "knowledge/headings.md",
         "knowledge/modding/deeper/deep.md",
         "knowledge/no-heading.md",
         "knowledge/not-at-start.md",
+        "knowledge/one-space-h1.md",
         "knowledge/only-frontmatter.md",
         "knowledge/plain.md",
         "knowledge/unclosed.md",
@@ -516,12 +567,14 @@
       ],
       "files": [
         "knowledge/UPPER.MD",
+        "knowledge/blank-h1.md",
         "knowledge/empties.md",
         "knowledge/frontmatter.md",
         "knowledge/headings.md",
         "knowledge/modding/deeper/deep.md",
         "knowledge/no-heading.md",
         "knowledge/not-at-start.md",
+        "knowledge/one-space-h1.md",
         "knowledge/only-frontmatter.md",
         "knowledge/plain.md",
         "knowledge/unclosed.md",
@@ -536,12 +589,14 @@
       ],
       "files": [
         "knowledge/UPPER.MD",
+        "knowledge/blank-h1.md",
         "knowledge/empties.md",
         "knowledge/frontmatter.md",
         "knowledge/headings.md",
         "knowledge/modding/deeper/deep.md",
         "knowledge/no-heading.md",
         "knowledge/not-at-start.md",
+        "knowledge/one-space-h1.md",
         "knowledge/only-frontmatter.md",
         "knowledge/plain.md",
         "knowledge/unclosed.md",
@@ -578,6 +633,16 @@
       "title": "Upper Case Extension",
       "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/UPPER.MD#intro",
       "content": "# Upper Case Extension\nbody",
+      "indexedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "60f6aa4e9fc5fc67e973442624a723aa0673b2d2",
+      "source": "own_knowledge",
+      "language": "zh-en",
+      "category": "..",
+      "title": "body after a blank h1",
+      "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/blank-h1.md#intro",
+      "content": "#  \nbody after a blank h1",
       "indexedAt": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -637,7 +702,37 @@
       "category": "..",
       "title": "headings",
       "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/headings.md#intro",
-      "content": "# headings\n\n## \nafter an empty heading line\n\n### three hashes\nbody after h3\n\n##Heading without a space\nbody after that",
+      "content": "# headings\n\n## \nafter a one-space heading line",
+      "indexedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fc0b4fa8326d728feb4528ffbccd75b913f4500a",
+      "source": "own_knowledge",
+      "language": "zh-en",
+      "category": "..",
+      "title": "headings —  ",
+      "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/headings.md#section",
+      "content": " \nafter a two-space heading line",
+      "indexedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fc0b4fa8326d728feb4528ffbccd75b913f4500a",
+      "source": "own_knowledge",
+      "language": "zh-en",
+      "category": "..",
+      "title": "headings —  ",
+      "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/headings.md#section",
+      "content": " \nafter a three-space heading line",
+      "indexedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "fc0b4fa8326d728feb4528ffbccd75b913f4500a",
+      "source": "own_knowledge",
+      "language": "zh-en",
+      "category": "..",
+      "title": "headings — \t",
+      "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/headings.md#section",
+      "content": "\t\nafter a two-tab heading line\n\n### three hashes\nbody after h3\n\n#### four hashes\nbody after h4\n\n##Heading without a space\nbody after that",
       "indexedAt": "2026-01-01T00:00:00.000Z"
     },
     {
@@ -711,6 +806,16 @@
       "indexedAt": "2026-01-01T00:00:00.000Z"
     },
     {
+      "id": "70c0543cc312a9bc9db970b8b42616f06b89ab4d",
+      "source": "own_knowledge",
+      "language": "zh-en",
+      "category": "..",
+      "title": "body after a one-space h1",
+      "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/one-space-h1.md#intro",
+      "content": "# \nbody after a one-space h1",
+      "indexedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
       "id": "c794fda64c463dc3c0c930139d1c68be873965c7",
       "source": "own_knowledge",
       "language": "zh-en",
@@ -778,12 +883,12 @@
       "kind": "pages-after-insert",
       "rows": [
         {
-          "id": "09015dbdffd50f10b3c9b34a105dd18063c38964",
+          "id": "60f6aa4e9fc5fc67e973442624a723aa0673b2d2",
           "source": "own_knowledge",
           "language": "zh-en",
           "category": "..",
-          "title": "empties — Has Heading But No Body",
-          "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/empties.md#has-heading-but-no-body",
+          "title": "body after a blank h1",
+          "url": "knowledge://../server-go/tools/parity/fixtures/owndocs-tree/knowledge/blank-h1.md#intro",
           "indexedAt": "2026-01-01T00:00:00.000Z"
         },
         {
