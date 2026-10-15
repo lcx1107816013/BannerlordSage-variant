@@ -129,6 +129,23 @@ func FormatAiScalar(value string) string {
 	return text
 }
 
+// TrimJS mirrors JavaScript's String.prototype.trim() using the ECMAScript whitespace set.
+// Exported so packages that mirror a `.trim()` call site do not each define their own set.
+func TrimJS(s string) string {
+	return jsTrim(s)
+}
+
+// TrimEndJS mirrors JavaScript's String.prototype.trimEnd(), which removes trailing
+// whitespace from the SAME ECMAScript set as trim() — not Go's unicode.IsSpace. It shares
+// jsWhitespace with jsTrim above so the set has exactly one definition here.
+//
+// It exists because search_source calls `lines.text.trimEnd()`: the trailing side only. Using
+// strings.TrimSpace there would additionally strip LEADING whitespace, which is the
+// indentation of a source line — the most visible part of a code search result.
+func TrimEndJS(s string) string {
+	return strings.TrimRight(s, jsWhitespace)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // jsTrim: JavaScript's trim() is NOT Go's strings.TrimSpace
 //
