@@ -152,6 +152,36 @@
   ],
   "probeCases": [
     {
+      "label": "a NUL byte in the path",
+      "dir": "D:\\GitHub\\BannerlordSage-variant\\server-go\\tools\\parity\\fixtures\\runtimecheck-tree\\x\u0000y",
+      "exists": false,
+      "existsThrew": null,
+      "hasFiles": false,
+      "hasFilesThrew": null,
+      "count": 0,
+      "countThrew": null
+    },
+    {
+      "label": "an over-long file name",
+      "dir": "D:\\GitHub\\BannerlordSage-variant\\server-go\\tools\\parity\\fixtures\\runtimecheck-tree\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "exists": false,
+      "existsThrew": null,
+      "hasFiles": false,
+      "hasFilesThrew": null,
+      "count": 0,
+      "countThrew": null
+    },
+    {
+      "label": "an illegal colon",
+      "dir": "D:\\GitHub\\BannerlordSage-variant\\server-go\\tools\\parity\\fixtures\\runtimecheck-tree\\a:b",
+      "exists": false,
+      "existsThrew": null,
+      "hasFiles": false,
+      "hasFilesThrew": null,
+      "count": 0,
+      "countThrew": null
+    },
+    {
       "label": "populated",
       "dir": "D:\\GitHub\\BannerlordSage-variant\\server-go\\tools\\parity\\fixtures\\runtimecheck-tree\\src",
       "exists": true,

@@ -177,6 +177,65 @@ func TestToolsetNameListsMatchTypeScript(t *testing.T) {
 	}
 }
 
+// TestRuntimeCheckInvalidPathsAreAbsence pins the rule that an INVALID path reads as absence rather
+// than as an error — the TypeScript's catch swallows every error class, not only ENOENT.
+//
+// ★ THIS TEST EXISTS BECAUSE I ONCE CLAIMED THE OPPOSITE WAS UNTESTABLE. I had removed the mutation
+// for this branch, writing that a non-ENOENT error "is not constructible on this host without
+// privileges". Enumerating the error classes — instead of reasoning about which ones a stat can
+// produce — found four inputs that need no privileges at all, and the TypeScript returns false for
+// every one of them. The port already behaved correctly; the CLAIM was what was wrong.
+func TestRuntimeCheckInvalidPathsAreAbsence(t *testing.T) {
+	root := mustAbs(t, filepath.Join("..", "..", "tools", "parity", "fixtures", "runtimecheck-tree"))
+
+	// Each of these produces a NON-ENOENT error on Windows, and all four are created with no
+	// privileges: a NUL byte, an over-long component, an illegal colon, and a path through a FILE.
+	cases := []struct {
+		label string
+		path  string
+	}{
+		// The two that my probe confirmed produce non-ENOENT errors: a NUL byte and an over-long name.
+		{"a NUL byte in the path", filepath.Join(root, "x") + string(rune(0)) + "y"},
+		{"an over-long file name", filepath.Join(root, strings.Repeat("a", 400))},
+		// ★ AND ONE THAT DOES NOT, KEPT AS A CONTROL. `C:/a:b/c` was non-ENOENT in my probe while
+		// `root/a:b` is plain ENOENT here — the prefix decides. The case asserts the PREMISE first, so
+		// a control that drifts out of the branch fails loudly instead of passing vacuously.
+		{"an illegal colon (control: ENOENT on this host)", filepath.Join(root, "a:b")},
+	}
+	for _, c := range cases {
+		// Confirm the premise: this input is NOT a plain ENOENT, so it reaches the branch under test.
+		_, statErr := os.Stat(c.path)
+		if statErr == nil {
+			t.Errorf("%s: the path resolved, so this case no longer tests anything", c.label)
+			continue
+		}
+		if os.IsNotExist(statErr) && !strings.Contains(c.label, "control") {
+			t.Errorf("%s: the error IS ENOENT on this host, so it does not reach the non-ENOENT branch "+
+				"(the case needs an input that fails differently)", c.label)
+			continue
+		}
+
+		exists, err := runtimecheck.FileExists(c.path)
+		if err != nil {
+			t.Errorf("%s: FileExists returned an error (%v); the TypeScript swallows every error class", c.label, err)
+			continue
+		}
+		if exists {
+			t.Errorf("%s: FileExists reported the path as present", c.label)
+		}
+
+		// And the two walk predicates agree: absence, not an error.
+		hasFiles, err := runtimecheck.DirectoryHasFiles(c.path)
+		if err != nil || hasFiles {
+			t.Errorf("%s: DirectoryHasFiles = (%v, %v), want (false, nil)", c.label, hasFiles, err)
+		}
+		count, err := runtimecheck.CountFilesInDirectory(c.path)
+		if err != nil || count != 0 {
+			t.Errorf("%s: CountFilesInDirectory = (%v, %v), want (0, nil)", c.label, count, err)
+		}
+	}
+}
+
 // TestRuntimeCheckProbesMatchTypeScript compares the two probes themselves, against expectations
 // produced by the real module with env.ts and game-profiles.ts injected.
 //
