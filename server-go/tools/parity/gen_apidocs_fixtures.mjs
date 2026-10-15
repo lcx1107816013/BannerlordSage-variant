@@ -9,7 +9,8 @@
 // Usage: bun run server-go/tools/parity/gen_apidocs_fixtures.mjs
 
 import { Database } from 'bun:sqlite'
-import { writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs'
+import { writeFileSync, mkdirSync } from 'node:fs'
+import { removeOwnFixtureOrRefuse, markAsFixture } from './fixture_guard.mjs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -24,9 +25,8 @@ const mod = await import(pathToFileURL(join(repoRoot, 'src', 'utils', 'bannerlor
 const fixturesDir = join(here, 'fixtures')
 mkdirSync(fixturesDir, { recursive: true })
 const dbPath = join(fixturesDir, 'apidocs.db')
-// A fixture we did not create is not ours to delete (the F19 guard, applied by hand here because
-// this generator writes no marker table — the file holds two tables and nothing else).
-if (existsSync(dbPath)) rmSync(dbPath, { force: true })
+// Refuses rather than deleting anything this harness did not mark. See fixture_guard.mjs.
+removeOwnFixtureOrRefuse(dbPath, 'gen_apidocs_fixtures.mjs')
 
 const db = new Database(dbPath)
 db.run(`CREATE TABLE bannerlord_api_versions (version TEXT PRIMARY KEY)`)
@@ -35,6 +35,7 @@ db.run(`CREATE TABLE bannerlord_api_entries (id TEXT PRIMARY KEY, version TEXT, 
 // Versions chosen so the NUMERIC sort and a TEXTUAL sort disagree: as text, "1.10.0" < "1.9.0".
 const versions = ['1.2.9', '1.9.0', '1.10.0', '2.0.0']
 for (const v of versions) db.run(`INSERT INTO bannerlord_api_versions (version) VALUES (?)`, [v])
+markAsFixture(db, 'gen_apidocs_fixtures.mjs')
 
 // ── pure-function corpora ────────────────────────────────────────────────────
 const normalizeCases = [
@@ -79,9 +80,10 @@ for (const s of states) {
 // The same resolution against an EMPTY database, to pin the "nothing indexed" branch that the
 // populated one cannot reach.
 const emptyDbPath = join(fixturesDir, 'apidocs-empty.db')
-if (existsSync(emptyDbPath)) rmSync(emptyDbPath, { force: true })
+removeOwnFixtureOrRefuse(emptyDbPath, 'gen_apidocs_fixtures.mjs')
 const emptyDb = new Database(emptyDbPath)
 emptyDb.run(`CREATE TABLE bannerlord_api_versions (version TEXT PRIMARY KEY)`)
+markAsFixture(emptyDb, 'gen_apidocs_fixtures.mjs')
 
 const emptyCases = [
   { label: 'empty index, nothing requested', gameVersion: undefined, fullVersion: undefined, requested: undefined },

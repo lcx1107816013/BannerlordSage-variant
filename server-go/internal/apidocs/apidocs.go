@@ -388,12 +388,15 @@ func buildVersionWarning(installedVersion, selectedAPIVersion string) (string, b
 		"; use local decompiled source as authority.", true
 }
 
-// hasTable mirrors the module-private hasTable, which searches for a TABLE OR VIRTUAL TABLE.
+// hasTable mirrors the module-private hasTable from src/utils/bannerlord-api-docs.ts, which searches
+// for `type IN ('table', 'virtual')`.
 //
-// ★ IT IS NOT THE SAME PREDICATE AS db.databaseHasTable. That one (src/utils/db.ts) filters
-// `type = 'table'` only, while this one accepts `type IN ('table', 'virtual')`. An FTS5 index is
-// registered as a virtual table, so for the API tables the two answers can differ — and this module
-// is the one whose call sites need the virtual form.
+// ★ IT IS NOT THE SAME PREDICATE AS db.ts's databaseHasTable, which filters `type = 'table'` only —
+// but MEASURED on this sqlite, the difference cannot be observed: an FTS5 table is listed in
+// sqlite_master with type = 'table' (checked in a synthetic database and in the real index, where
+// the only types present are 'table' and 'index'). The wider spelling is preserved because it is
+// what the source says, and the note exists so that nobody "simplifies" it later believing the two
+// forms are interchangeable in principle — they are only equivalent on this build.
 func hasTable(db *sql.DB, tableName string) bool {
 	row := db.QueryRow(`SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual') AND name = ?`, tableName)
 	var name string
