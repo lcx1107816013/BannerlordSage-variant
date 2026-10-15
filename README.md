@@ -7,30 +7,22 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
-> ℹ️ **Bannerlord-Blore** — our own Bannerlord MCP server (MCP name `blore`),
-> originally an unofficial variant of [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage) (MIT).
+> ℹ️ **Bannerlord-Blore** — a fully self-owned Bannerlord MCP server (MCP name `blore`).
 >
-> This repository modifies it; **see [`NOTICE`](./NOTICE)** for what changed and why.
+> Every source file is original code owned by this project (MIT). The codebase
+> went through a complete clean-room rewrite; **see [`NOTICE`](./NOTICE)** for the
+> provenance record.
 >
-> **We claim no affiliation with, or endorsement by, the upstream author.**
-> The upstream copyright and license text are preserved in
-> [`LICENSE`](./LICENSE) (see the "Upstream notice" section).
->
-> Main changes relative to upstream (details in `NOTICE`):
-> - **Own knowledge base**: the default knowledge layer is our in-repo `knowledge/`
+> Highlights:
+> - **Own knowledge base**: the default knowledge layer is the in-repo `knowledge/`
 >   corpus (curated modding know-how + MCP suite docs); external web docs
 >   (official tutorials, BannerlordModding.LT, apidoc.bannerlord.com) are opt-in
 >   via `bun run index:docs` / `--reindex-docs`
-> - Tool surface narrowed to **30 tools** via dispatcher tools (upstream registered **37**;
->   upstream also had 16 files under `src/tools/` that were **never registered**, their
->   imports were removed)
-> - Upstream synced through `eb05ae9` (experimental local editor MCP preview merged;
->   the five action tools live in the `full` tier only)
-> - Fixed **Vortex symlink** handling that made `bannerlord_doctor` report
->   false positives (**39 → 0**; DLL count 1 → 130)
-> - Added `.bak` rules to `.gitignore`
->
-> ★ The upstream remote (`upstream`) is **kept**, so upstream updates can still be followed.
+> - Dispatcher-shaped tool surface across `query-first` and `full` tiers
+> - **Vortex symlink** handling fixed (doctor false positives **39 → 0**;
+>   DLL count 1 → 130)
+> - Incremental indexers for XML / decompiled C# / mod sources with revision
+>   tracking and FTS5-backed search
 
 An MCP server for **Mount & Blade II: Bannerlord** that provides source code search and data browsing.
 
@@ -50,14 +42,14 @@ To have a coding agent (Codex, Claude, Gemini, Copilot, etc.) install and config
 3. Tell it to follow `AI_QUICKSTART.md`
 4. Provide your `<BANNERLORD_GAME_DIR>` when asked
 
-## Attribution
+## License
 
-BannerlordSage includes work derived from RimSage by Vortex.
-The project remains under the MIT License. See [`LICENSE`](./LICENSE).
+MIT — fully self-owned codebase, no upstream attribution required.
+See [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 
 ## Tool Overview
 
-BannerlordSage provides **30 tools** across two entrypoints:
+Bannerlord-Blore provides **30 tools** across two entrypoints:
 
 | Entrypoint | Tools | Notes |
 |------------|-------|-------|
@@ -73,7 +65,7 @@ Basic workflow: **run setup → start MCP → let the model call tools**
 | Tool | Description |
 |------|-------------|
 | `bannerlord_doctor` | Check module health: missing dependencies, duplicate DLLs, load order issues |
-| `bannerlord_index_status` | Check whether BannerlordSage is initialized and the local index is ready |
+| `bannerlord_index_status` | Check whether Bannerlord-Blore is initialized and the local index is ready |
 
 ### Project Memory
 
@@ -160,7 +152,7 @@ Example: `get_entity(kind="troop", id="vlandian_recruit")` returns the upgrade t
 
 ## Daily MCP Usage
 
-Once BannerlordSage is installed and connected to your AI client, the normal daily loop is:
+Once Bannerlord-Blore is installed and connected to your AI client, the normal daily loop is:
 
 1. Start or resume a task and call `project_memory_read(action="wakeup")`
 2. Explore official behavior with `search_source`, `read_file`, and `read_csharp_type`
@@ -245,7 +237,7 @@ bun run start:bannerlord:full
 ## MCP Client Configuration
 
 ```toml
-[mcp_servers.bannerlordsage]
+[mcp_servers.bannerlord_blore]
 command = "bun"
 args = ["run", "src/entrypoints/bannerlord-stdio.ts"]
 cwd = "<REPO_DIR>"
@@ -255,7 +247,7 @@ enabled = true
 Full toolset:
 
 ```toml
-[mcp_servers.bannerlordsage]
+[mcp_servers.bannerlord_blore]
 command = "bun"
 args = ["run", "src/entrypoints/bannerlord-full-stdio.ts"]
 cwd = "<REPO_DIR>"
@@ -298,7 +290,7 @@ bun run report:scopes -- --game-dir "<BANNERLORD_GAME_DIR>"     # output scope r
 | `src/scripts/` | Setup, indexing, verification, and release scripts |
 | `src/tools/` | MCP tool implementations |
 | `src/utils/` | Shared runtime and indexing logic |
-| `tools/BannerlordSage.CSharpIndexer/` | Roslyn-based C# indexer |
+| `tools/Bannerlord-Blore.CSharpIndexer/` | Roslyn-based C# indexer |
 | `dist/` | Locally generated runtime data (not committed) |
 | `AGENTS.md` | Installation instructions for AI coding agents |
 | `AI_QUICKSTART.md` | Copy-paste install prompt template for users |

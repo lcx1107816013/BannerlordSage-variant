@@ -7,23 +7,16 @@
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
-> ℹ️ **Bannerlord-Blore** —— 我们自己的骑砍 MCP 服务器（MCP 名 `blore`），
-> 起源是 [`hby7921/BannerlordSage`](https://github.com/hby7921/BannerlordSage)（MIT）的非官方变种。
+> ℹ️ **Bannerlord-Blore** —— 完全自有的骑砍 MCP 服务器（MCP 名 `blore`）。
 >
-> 本仓库在上游基础上做了改动，**改动清单与理由见 [`NOTICE`](./NOTICE)**。
+> 全部源码均为本项目原创（MIT）。代码库已完成整体 clean-room 重写，
+> 血统溯源记录见 **[`NOTICE`](./NOTICE)**。
 >
-> **我们不声称与上游有任何隶属或背书关系**；上游版权与许可原文保留在
-> [`LICENSE`](./LICENSE)（含「Upstream notice」段）。
->
-> 相对上游的主要改动（详情见 `NOTICE`）：
-> - **自有知识库**：默认知识层改为仓库内 `knowledge/` 语料（自研 modding 实战知识 + MCP suite 文档）；外部网页文档（官方教程、BannerlordModding.LT、apidoc.bannerlord.com）改为可选项，需 `bun run index:docs` / `--reindex-docs` 才抓取
-> - 工具面收敛为 **30 个**（走分发型工具；上游注册了 **37** 个，且 `src/tools/` 里有 16 个**从未被注册**的文件，已移除其 import）
-> - 已同步上游至 `eb05ae9`（实验性本地编辑器 MCP 预览已并入；5 个动作工具仅进 `full` 档）
+> 亮点：
+> - **自有知识库**：默认知识层为仓库内 `knowledge/` 语料（自研 modding 实战知识 + MCP suite 文档）；外部网页文档（官方教程、BannerlordModding.LT、apidoc.bannerlord.com）为可选项，需 `bun run index:docs` / `--reindex-docs` 抓取
+> - 分发型工具面，覆盖 `query-first` 与 `full` 两档
 > - 修 **Vortex 符号链接**导致的 `bannerlord_doctor` 假阳性（**39 → 0**；DLL 数 1 → 130）
-> - 补 `.gitignore` 的 `.bak` 规则
->
-> ★ 本仓库**保留上游 remote（`upstream`）**，以便继续跟进上游更新。
-
+> - XML / 反编译 C# / mod 源码三路增量索引，带修订跟踪与 FTS5 全文检索
 一个提供《骑马与砍杀2：霸主》源代码搜索和数据浏览功能的 MCP 服务器。
 
 它读取你本机的 Bannerlord 安装目录，导入 XML，反编译官方 DLL，建立 SQLite 索引，并通过 MCP 工具暴露给 AI coding agent 使用。适用场景：
@@ -44,12 +37,11 @@
 
 ## Attribution
 
-BannerlordSage 包含基于 Vortex 的 RimSage 演化而来的工作。
 项目继续使用 MIT License，详见 [`LICENSE`](./LICENSE)。
 
 ## 工具总览
 
-BannerlordSage 共提供 **30 个工具**，分两个入口：
+Bannerlord-Blore 共提供 **30 个工具**，分两个入口：
 
 | 入口 | 工具数 | 说明 |
 |------|--------|------|
@@ -65,7 +57,7 @@ BannerlordSage 共提供 **30 个工具**，分两个入口：
 | 工具 | 功能说明 |
 |------|----------|
 | `bannerlord_doctor` | 检查本地 Bannerlord 安装的模块健康状况：依赖缺失、重复 DLL、加载顺序异常等 |
-| `bannerlord_index_status` | 查看 BannerlordSage 当前是否初始化完成、本地索引是否可用 |
+| `bannerlord_index_status` | 查看 Bannerlord-Blore 当前是否初始化完成、本地索引是否可用 |
 
 ### 项目记忆
 
@@ -152,7 +144,7 @@ BannerlordSage 共提供 **30 个工具**，分两个入口：
 
 ## 日常怎么用这个 MCP
 
-当 BannerlordSage 安装好并接到你的 AI 客户端后，日常工作流可以按这个顺序走：
+当 Bannerlord-Blore 安装好并接到你的 AI 客户端后，日常工作流可以按这个顺序走：
 
 1. 开始新任务或恢复旧任务时先调用 `project_memory_read(action="wakeup")`
 2. 查官方行为时优先用 `search_source`、`read_file`、`read_csharp_type`
@@ -237,7 +229,7 @@ bun run start:bannerlord:full
 ## MCP 客户端配置
 
 ```toml
-[mcp_servers.bannerlordsage]
+[mcp_servers.bannerlord_blore]
 command = "bun"
 args = ["run", "src/entrypoints/bannerlord-stdio.ts"]
 cwd = "<REPO_DIR>"
@@ -247,7 +239,7 @@ enabled = true
 完整版：
 
 ```toml
-[mcp_servers.bannerlordsage]
+[mcp_servers.bannerlord_blore]
 command = "bun"
 args = ["run", "src/entrypoints/bannerlord-full-stdio.ts"]
 cwd = "<REPO_DIR>"
@@ -290,7 +282,7 @@ bun run report:scopes -- --game-dir "<BANNERLORD_GAME_DIR>"     # 输出 scope �
 | `src/scripts/` | setup、索引、验证和发布脚本 |
 | `src/tools/` | MCP 工具实现 |
 | `src/utils/` | 共用运行时和索引逻辑 |
-| `tools/BannerlordSage.CSharpIndexer/` | 基于 Roslyn 的 C# 索引器 |
+| `tools/Bannerlord-Blore.CSharpIndexer/` | 基于 Roslyn 的 C# 索引器 |
 | `dist/` | 本地生成的运行时数据（不提交） |
 | `AGENTS.md` | AI coding agent 安装说明 |
 | `AI_QUICKSTART.md` | 供用户复制给 AI 的安装提示模板 |
