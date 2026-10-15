@@ -1,0 +1,22 @@
+{
+  "generatedFrom": "server-go/tools/parity/../../  (Archive src tree)",
+  "entrypoints": {
+    "bannerlord-stdio (default, 39 tools)": 70,
+    "bannerlord-full-stdio (46 tools)": 70,
+    "bannerlord-setup": 18
+  },
+  "totalFiles": 88,
+  "reachable": 80,
+  "unreachable": [
+    "src/scripts/report-scopes.ts",
+    "src/scripts/smoke-release.ts",
+    "src/scripts/verify-bannerlord.ts",
+    "src/scripts/verify-path-sandbox.ts",
+    "src/scripts/verify-project-memory.ts",
+    "src/utils/bannerlord-editor-client.test.ts",
+    "src/utils/bannerlord-editor-registry.test.ts",
+    "src/utils/local-mod-source.ts",
+    "src/utils/own-docs.test.ts"
+  ],
+  "warnings": []
+}
