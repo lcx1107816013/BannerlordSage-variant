@@ -172,3 +172,11 @@ func GetGamePaths(gameID string) GamePaths {
 		XMLParseReportMarkdownPath: filepath.Join(reportsPath, "xml-parse-report.md"),
 	}
 }
+
+// DistPath mirrors `export const distPath = join(root, 'dist')` in src/utils/env.ts.
+//
+// A function rather than a var, like RootDir above: a package-level var would freeze the
+// root at init time, before BLORE_ROOT is read.
+func DistPath() string {
+	return filepath.Join(RootDir(), "dist")
+}

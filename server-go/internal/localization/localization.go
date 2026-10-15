@@ -27,6 +27,28 @@ const (
 // Note the fallback is `match[2] || ”`, so an empty tail yields an EMPTY STRING rather than
 // being treated as absent. That distinction is visible: it decides whether a later
 // `token?.fallback` check passes.
+//
+// ★ THE TAIL MUST NOT CONTAIN A LINE TERMINATOR, and that is a CORRECTED DEFECT rather than
+// original behaviour. The TypeScript is `text.match(/^\{=([^}]+)\}(.*)$/)` with no flags, and
+// in ECMAScript a `.` excludes LF, CR, U+2028 and U+2029 while `$` (non-multiline) matches
+// only at the very END of the input. So a tail spanning or ending with a terminator makes the
+// WHOLE match fail:
+//
+//	{=abc}Continue\nSecond line   ts: not a token   (was) go: a token
+//	{=abc}Continue\r\n             ts: not a token   (was) go: a token
+//	{=abc}Continue\n               ts: not a token   (was) go: a token
+//	{=abc}Continue\u2028           ts: not a token   (was) go: a token
+//	{=abc}Continue\u000b           ts: A token       go: a token   (VT is not a terminator)
+//	{=abc}Continue\u0085           ts: A token       go: a token   (NEL is not a terminator)
+//
+// Measured by running the real regex under bun 1.4.3, not by reading the spec. The id capture
+// is unaffected — `[^}]` DOES admit a line terminator, so `{=a\nb}tail` is a token in both —
+// which is why the check below is on the TAIL only.
+//
+// This was invisible until a fixture corpus was built that contained the inputs: every
+// existing corpus case was single-line, so both implementations agreed and the divergence
+// could not be observed. A token pasted together with the following line is exactly the
+// malformed input the tool's early return exists to catch.
 func ParseLocalizationToken(text string) (id, fallback string, ok bool) {
 	if text == "" {
 		return "", "", false
@@ -43,7 +65,11 @@ func ParseLocalizationToken(text string) (id, fallback string, ok bool) {
 	if idx == 0 {
 		return "", "", false
 	}
-	return rest[:idx], rest[idx+1:], true
+	tail := rest[idx+1:]
+	if strings.ContainsAny(tail, "\n\r\u2028\u2029") {
+		return "", "", false
+	}
+	return rest[:idx], tail, true
 }
 
 // canonicalLanguageAliases mirrors CANONICAL_LANGUAGE_ALIASES exactly, including which
