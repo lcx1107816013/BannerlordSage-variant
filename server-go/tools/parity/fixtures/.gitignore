@@ -16,3 +16,7 @@
 # check a new clone performs, and tools/parity/README.md records the failure it prevents.
 runtimecheck-tree/
 runtimecheck-probe-tree/
+# Same reasoning, same shape: the own-docs corpus contains a HIDDEN DIRECTORY (`.hidden-dir`) and a
+# hidden FILE, which are cases the walker is supposed to skip. Committing them would need a file
+# inside the hidden directory, which is exactly what the case asserts must not happen.
+owndocs-tree/
