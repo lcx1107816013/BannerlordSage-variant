@@ -171,7 +171,10 @@ async function fetchApiVersionEntries(version: string, indexedAt: string): Promi
     }
   }
 
-  const batches = await mapWithConcurrency(jobs, 12, async job => {
+  // ★ Concurrency lowered from 12 to 6, because 12 is what the site drops connections
+  // under. The retry above makes either value survivable, but a lower rate means far fewer
+  // retries and a much shorter run — the polite value is also the faster one here.
+  const batches = await mapWithConcurrency(jobs, 6, async job => {
     const raw = await fetchTextIfPresent(job.url)
     if (!raw) return []
     return parseSearchData(raw, version, job.section, baseUrl, indexedAt)
@@ -329,11 +332,17 @@ function setApiMeta(db: Database, key: string, value: string): void {
 const API_DOCS_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-async function fetchWithRetry(url: string, attempts = 4): Promise<Response> {
+async function fetchWithRetry(url: string, attempts = 6): Promise<Response> {
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url, { headers: { 'User-Agent': API_DOCS_USER_AGENT } })
+      // An EXPLICIT timeout. Without one, a stalled connection sits until the platform's
+      // default gives up, which is how this failed after eight minutes with a bare
+      // "The operation timed out." A per-attempt bound turns a stall into a retry.
+      const response = await fetch(url, {
+        headers: { 'User-Agent': API_DOCS_USER_AGENT },
+        signal: AbortSignal.timeout(45_000),
+      })
       // Retry a 403 once more as well: the WAF intermittently rejects a request that the
       // same URL accepts moments later. 404 and other statuses are meaningful to callers.
       if (response.status === 403 && attempt < attempts) {
@@ -344,7 +353,9 @@ async function fetchWithRetry(url: string, attempts = 4): Promise<Response> {
     } catch (error) {
       lastError = error
     }
-    await new Promise(resolve => setTimeout(resolve, 250 * attempt * attempt))
+    // Exponential backoff, capped. A WAF that is rate-limiting us needs time, not
+    // another immediate request.
+    await new Promise(resolve => setTimeout(resolve, Math.min(500 * 2 ** (attempt - 1), 8_000)))
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
