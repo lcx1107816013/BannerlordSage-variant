@@ -1,3 +1,6 @@
+// Policy ids are matched case-insensitively with an optional `Policy.`
+// namespace prefix; one known upstream typo gets mapped to the correct id
+// so callers can pass either spelling.
 const POLICY_ID_ALIASES: Record<string, string> = {
   policy_land_grands_for_veteran: 'policy_land_grants_for_veterans',
 }

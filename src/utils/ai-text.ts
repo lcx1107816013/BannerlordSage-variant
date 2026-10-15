@@ -1,3 +1,8 @@
+/**
+ * The structured plain-text reporting format used across MCP tool output.
+ * Tools emit header lines plus per-result blocks; `result_count` mirrors
+ * the number of blocks so consumers can spot truncation.
+ */
 export type AiScalar = string | number | boolean | null | undefined
 
 export type AiTextField = {
@@ -84,6 +89,7 @@ export function renderAiTextReport(
   return lines.join('\n')
 }
 
+/** Renders a scalar for output: booleans verbatim, blanks/nulls to fallback. */
 export function formatAiScalar(value: AiScalar, fallback = 'unknown'): string {
   if (value === null || value === undefined) return fallback
   if (typeof value === 'boolean') return value ? 'true' : 'false'

@@ -1,3 +1,8 @@
+// Cross-session project memory storage (bun:sqlite).
+//
+// A small dedicated database next to the main index: one table for memory
+// records plus an FTS5 mirror for full-text search. Recreated lazily per
+// game; the schema is idempotent so opening an existing database is a no-op.
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { Database } from 'bun:sqlite'

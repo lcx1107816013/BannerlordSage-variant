@@ -1,3 +1,9 @@
+/**
+ * Reference resolution against the game index: strip a reference prefix
+ * (`Culture.`, `Faction.`, …), look the id up in its table, and format a
+ * "DisplayName [reference]" label for tool output. Each lookup orders its
+ * candidate rows deterministically (file path as final tiebreaker).
+ */
 import type { Database } from 'bun:sqlite'
 import { normalizeBannerlordPolicyId } from './bannerlord-policy-id'
 import { resolveMaybeLocalizedText } from './localization'
@@ -25,6 +31,7 @@ export type BannerlordSettlementInfo = {
   settlementType: string | null
 }
 
+/** Removes the first matching reference prefix; blank input yields null. */
 export function normalizeReference(value: string | null | undefined, prefixes: string[]): string | null {
   if (!value) return null
   for (const prefix of prefixes) {
@@ -35,6 +42,7 @@ export function normalizeReference(value: string | null | undefined, prefixes: s
   return value
 }
 
+/** Culture display name; prefers cultures with more name data available. */
 export function lookupCultureName(db: Database, reference: string | null | undefined): string | null {
   const cultureId = normalizeReference(reference, ['Culture.'])
   if (!cultureId) return null
@@ -57,6 +65,8 @@ export function lookupCultureName(db: Database, reference: string | null | undef
   return row?.name ?? null
 }
 
+/** Hero display name; hero and NPCCharacter references share the troops
+ * table, so both prefixes are accepted. */
 export function lookupHeroName(db: Database, reference: string | null | undefined): string | null {
   const heroId = normalizeReference(reference, ['Hero.', 'NPCCharacter.'])
   if (!heroId) return null
@@ -76,6 +86,7 @@ export function lookupHeroName(db: Database, reference: string | null | undefine
   return row?.name ?? null
 }
 
+/** Clan record; noble clans sort ahead of minor factions, then everyone else. */
 export function lookupClanInfo(db: Database, reference: string | null | undefined): BannerlordClanInfo | null {
   const clanId = normalizeReference(reference, ['Faction.', 'Clan.'])
   if (!clanId) return null
@@ -153,6 +164,8 @@ export function lookupSettlementInfo(db: Database, reference: string | null | un
   )
 }
 
+/** Human-readable label: localized display name plus the raw reference in
+ * brackets; falls back to the bare reference, then 'unknown'. */
 export function formatReferenceLabel(
   rawReference: string | null | undefined,
   displayName: string | null | undefined,

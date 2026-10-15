@@ -1,4 +1,11 @@
-// src/utils/db.ts
+// Runtime index database access (bun:sqlite).
+//
+// One cached connection per process, keyed by database path: switching
+// games closes the previous handle. The connection also drops itself when
+// the index revision changes (runtime-revision hook) so a re-index is
+// picked up without restarting the server. The inspection helpers open
+// short-lived read-only handles so they can probe arbitrary databases
+// (parity checks, doctor) without touching the runtime connection.
 import { Database } from 'bun:sqlite'
 import { getGamePaths } from './env'
 import { ensureRuntimeRevisionFresh, registerRuntimeInvalidator } from './runtime-revision'
@@ -151,6 +158,8 @@ export function databaseTextValue(
   }
 }
 
+// Identifiers (table/column names) cannot be bound as parameters, so they
+// are quoted manually; values always go through bound parameters.
 function escapeSqlIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`
 }

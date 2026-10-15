@@ -1,6 +1,18 @@
+/**
+ * Localization resolution for `{=STRING_ID}fallback` tokens: pulls every
+ * per-language entry from the index, orders them by the caller's language
+ * preference, and exposes both a per-language map and a best-effort
+ * display string that always shows the token id for traceability.
+ *
+ * Language naming in the wild is inconsistent (CNs / zh-Hans / SC / …),
+ * so everything is folded through an alias table into canonical keys.
+ */
 import { getDb } from './db'
 
 const TOKEN_REGEX = /^\{=([^}]+)\}(.*)$/
+
+/** Alias table: canonical language -> accepted spellings (compared after
+ * whitespace/underscore/hyphen stripping). */
 const CANONICAL_LANGUAGE_ALIASES: Record<string, string[]> = {
   english: ['english', 'en'],
   chinese_simplified: [
@@ -67,6 +79,7 @@ export type LocalizationDetails = {
   sourceEntries: SourceLocalizationEntry[]
 }
 
+/** Splits `{=ID}fallback` into its two halves; null for non-token text. */
 export function parseLocalizationToken(text?: string | null): LocalizationToken | null {
   if (!text) return null
   const match = text.match(TOKEN_REGEX)
@@ -77,6 +90,7 @@ export function parseLocalizationToken(text?: string | null): LocalizationToken 
   }
 }
 
+/** Everything the index knows about one string id, preference-ordered. */
 export function resolveLocalizationDetails(
   tokenOrId: string,
   preferredLanguages?: string[]
@@ -98,6 +112,8 @@ export function resolveLocalizationDetails(
       $id: id,
     }) as XmlLocalizationEntry[]
 
+  // The source-localization table only exists after the C# indexing pass;
+  // probing avoids a hard failure on XML-only indexes.
   const sourceEntries = hasRuntimeTable('source_localization_entries')
     ? (db
         .query<any, any>(
@@ -136,6 +152,8 @@ export function resolveLocalizationDetails(
   }
 }
 
+/** Language -> first text mapping, with canonical keys merged in; also
+ * exposes the source-decompiled and token fallbacks under fixed keys. */
 export function resolveLocalizationMap(
   tokenOrId: string,
   preferredLanguages?: string[]
@@ -165,6 +183,8 @@ export function resolveLocalizationMap(
   return mapping
 }
 
+/** Display string for a possibly-tokenized text: the best available
+ * translation, always suffixed with the token id for traceability. */
 export function resolveMaybeLocalizedText(
   rawText: string | undefined,
   preferredLanguages?: string[]
@@ -199,6 +219,8 @@ function hasRuntimeTable(tableName: string): boolean {
   return Boolean(row)
 }
 
+/** Caller preferences first (canonicalized), then the hard-coded default
+ * preference: simplified Chinese, traditional Chinese, English. */
 function buildPreferredLanguageOrder(preferredLanguages?: string[]): string[] {
   const result: string[] = []
 
@@ -218,6 +240,8 @@ function buildPreferredLanguageOrder(preferredLanguages?: string[]): string[] {
   return result
 }
 
+/** Sort rank for a language against the preference order; unknown
+ * languages sort after every known one. */
 function getLocalizationLanguageRank(language: string, preferredLanguages?: string[]): number {
   const canonical = getCanonicalLanguage(language)
   const order = buildPreferredLanguageOrder(preferredLanguages)
@@ -225,6 +249,8 @@ function getLocalizationLanguageRank(language: string, preferredLanguages?: stri
   return index === -1 ? order.length + 1 : index
 }
 
+/** `std` files are the English base; then alias lookup; otherwise the
+ * normalized key itself acts as its own canonical form. */
 function getCanonicalLanguage(language: string): string | null {
   const normalized = normalizeLanguageKey(language)
   if (!normalized) {

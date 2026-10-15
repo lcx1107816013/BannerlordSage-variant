@@ -1,7 +1,12 @@
+/**
+ * Answers "is the index ready to serve queries" for the active game,
+ * honoring which artifacts the game profile actually requires.
+ */
 import { activeGameId, dbPath, defsPath, sourcePath } from './env'
 import { countFilesInDirectory, directoryHasFiles, fileExists } from './bannerlord-setup'
 import { getGameProfile } from './game-profiles'
 
+/** Cheap readiness probe: existence checks only, no per-file counting. */
 export async function getInitializationReadiness(): Promise<{
   gameId: string
   ready: boolean
@@ -24,6 +29,7 @@ export async function getInitializationReadiness(): Promise<{
   }
 }
 
+/** Detailed status: counts files in each artifact directory. */
 export async function getInitializationStatus(): Promise<{
   gameId: string
   ready: boolean

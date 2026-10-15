@@ -1,8 +1,12 @@
-// src/utils/xml-utils.ts
+// XML text decoding for Bannerlord data files.
+//
+// The game mixes UTF-8 and UTF-16 files, sometimes without a BOM (a bare
+// `<` byte pattern betrays UTF-16 in that case), so decoding sniffs the
+// header bytes before handing the buffer to TextDecoder. Attributes are
+// kept because Bannerlord XML leans on `id`/`name`/`value` metadata.
 import { file } from 'bun'
 import { XMLParser } from 'fast-xml-parser'
 
-// Keep attributes because Bannerlord XML relies heavily on id/name/value metadata.
 export const parser = new XMLParser({
   ignoreAttributes: false,
   processEntities: false,
@@ -20,6 +24,7 @@ export function decodeXmlBytes(bytes: Uint8Array): string {
 
   const encoding = detectXmlEncoding(bytes)
   const text = new TextDecoder(encoding).decode(bytes)
+  // Drop a leading BOM character if the decoder kept it.
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
 }
 

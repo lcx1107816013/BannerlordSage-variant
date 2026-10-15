@@ -1,3 +1,8 @@
+// LRU cache of recently read text files, sliced by line ranges.
+//
+// Entry validity is checked by (mtime, size); a global revision change
+// (index re-run) drops the whole cache through the runtime-revision hook.
+// Capacity is small on purpose — the call sites read a handful of hot files.
 import { readFile, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { ensureRuntimeRevisionFresh, registerRuntimeInvalidator } from './runtime-revision'
@@ -20,6 +25,7 @@ type TextSlice = {
 const MAX_CACHED_FILES = 8
 const cache = new Map<string, CachedTextFile>()
 
+/** Reads a window of lines from a text file (1-based-friendly: line 0 = first line). */
 export async function readTextFileSlice(
   fullPath: string,
   startLine = 0,
@@ -72,6 +78,8 @@ async function getCachedTextFile(fullPath: string): Promise<CachedTextFile> {
   return entry
 }
 
+// Map insertion order doubles as recency: re-insert on touch, evict the
+// oldest key whenever capacity is exceeded.
 function refreshLru(key: string, value: CachedTextFile): void {
   cache.delete(key)
   cache.set(key, value)

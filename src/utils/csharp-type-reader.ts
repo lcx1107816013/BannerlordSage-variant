@@ -1,3 +1,9 @@
+/**
+ * Renders an indexed C# type (or the disambiguation report for several
+ * same-named types) as MCP text content. Matches are capped, oversized
+ * bodies are collapsed to their member surface, and missing source files
+ * are skipped silently.
+ */
 import { Database } from 'bun:sqlite'
 import { file } from 'bun'
 import { join } from 'node:path'
@@ -36,6 +42,8 @@ export async function readIndexedCsharpType(options: ReadIndexedCSharpTypeOption
     topFields = [],
   } = options
 
+  // Shortest full name sorts first, so the plain (un-namespaced) candidate
+  // is presented before any namespaced twin of the same type name.
   const rows = db
     .query<CSharpTypeMatchRow, { $name: string }>(
       `
@@ -97,6 +105,13 @@ export async function readIndexedCsharpType(options: ReadIndexedCSharpTypeOption
   return { content: [{ type: 'text' as const, text }] }
 }
 
+/**
+ * Collapses a large type body down to its member surface: namespace and
+ * type scaffolding plus member signatures (brace depth ≤ 1) survive;
+ * everything deeper is replaced by a placeholder inside the opening brace.
+ * String and comment contents are stripped before counting braces so
+ * literal braces cannot skew the depth tracking.
+ */
 function summarizeTypeSurface(code: string): string {
   const lines = code.split('\n')
   const output: string[] = []

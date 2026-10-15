@@ -1,3 +1,9 @@
+/**
+ * Facade over the per-workspace mod-source index. The heavy lifting
+ * (building, status reporting, type reads) is delegated to the indexing
+ * script and the shared C# type reader; this module binds them to the
+ * "local mod" vocabulary and returns MCP-shaped content blocks.
+ */
 import { Database } from 'bun:sqlite'
 import { buildModSourceIndex, type ModSourceIndexSummary } from '../scripts/index-mod-source'
 import { readIndexedCsharpType } from './csharp-type-reader'
@@ -5,10 +11,12 @@ import { renderAiTextReport } from './ai-text'
 
 export type LocalModSourceIndexSummary = ModSourceIndexSummary
 
+/** Builds or refreshes the mod-source index for the workspace. */
 export async function ensureLocalModSourceIndex(workspaceRoot?: string): Promise<LocalModSourceIndexSummary> {
   return buildModSourceIndex(workspaceRoot)
 }
 
+/** Index status rendered as an MCP text content block. */
 export async function getLocalModSourceStatus(workspaceRoot?: string) {
   const summary = await ensureLocalModSourceIndex(workspaceRoot)
 
@@ -37,6 +45,7 @@ export async function getLocalModSourceStatus(workspaceRoot?: string) {
   }
 }
 
+/** Reads one indexed C# type (or the multi-match disambiguation report). */
 export async function readLocalModType(workspaceRoot: string | undefined, typeName: string) {
   const summary = await ensureLocalModSourceIndex(workspaceRoot)
   const db = new Database(summary.workspace.dbPath, { create: false, readonly: true })

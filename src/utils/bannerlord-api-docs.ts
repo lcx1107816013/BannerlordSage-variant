@@ -1,3 +1,9 @@
+/**
+ * Version selection for the official API docs index. The installed game
+ * version is matched against indexed API versions; when they agree the
+ * official docs act as the authority, otherwise the local decompiled
+ * source wins and the docs are demoted to historical reference.
+ */
 import type { Database } from 'bun:sqlite'
 import type { SetupState } from './bannerlord-setup'
 
@@ -27,6 +33,7 @@ export type BannerlordApiVersionResolution = {
   availableVersions: string[]
 }
 
+/** Normalizes "v1.2.9.x" style input to its first three numeric parts. */
 export function normalizeApiVersion(value?: string): string | undefined {
   const cleaned = value?.trim().replace(/^v/i, '')
   if (!cleaned) return undefined
@@ -43,6 +50,7 @@ export function normalizeApiVersion(value?: string): string | undefined {
   return parts.slice(0, 3).join('.')
 }
 
+/** Numeric three-part comparison (non-numeric segments count as 0). */
 export function compareApiVersions(left: string, right: string): number {
   const leftParts = parseVersionParts(left)
   const rightParts = parseVersionParts(right)
@@ -56,6 +64,7 @@ export function compareApiVersions(left: string, right: string): number {
   return 0
 }
 
+/** All indexed API versions, newest first by numeric comparison. */
 export function readIndexedApiVersions(db: Database): string[] {
   if (!hasTable(db, 'bannerlord_api_versions')) {
     return []

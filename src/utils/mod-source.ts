@@ -1,3 +1,12 @@
+/**
+ * Locates and describes a mod source workspace: where the C# sources sit,
+ * where its derived cache lives (sqlite index + AST dump + revision
+ * marker), and how to enumerate the `.cs` files.
+ *
+ * The cache directory is keyed by a 12-hex digest of the lowercased,
+ * forward-slashed source root — so the same workspace always maps to the
+ * same cache regardless of path casing or separator style.
+ */
 import { createHash } from 'node:crypto'
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
@@ -18,8 +27,10 @@ export type ModSourceWorkspace = ModSourcePaths & {
   workspaceRoot: string
 }
 
+/** Directory names never descended into when walking mod sources. */
 export const MOD_SOURCE_IGNORED_DIRECTORY_NAMES = ['.git', '.idea', '.vs', '.vscode', 'bin', 'obj'] as const
 
+/** The configured source directory from the environment, if any. */
 export function getConfiguredModSourceDir(): string | undefined {
   return (
     process.env.BANNERSAGE_BANNERLORD_MOD_SOURCE_DIR ||
@@ -27,10 +38,12 @@ export function getConfiguredModSourceDir(): string | undefined {
   )?.trim()
 }
 
+/** Resolves (and creates the cache for) the configured workspace. */
 export async function ensureModSourceDir(candidate?: string): Promise<string> {
   return (await resolveModSourceWorkspace(candidate)).sourceRoot
 }
 
+/** Explicit candidate wins over the environment; blank everywhere throws. */
 export function resolveModSourceDir(candidate?: string): string {
   const configured = candidate?.trim() || getConfiguredModSourceDir()
   if (!configured) {
@@ -40,6 +53,8 @@ export function resolveModSourceDir(candidate?: string): string {
   return resolve(configured)
 }
 
+/** Full workspace resolution: validate the root, pick the effective source
+ * root, create the cache directory. */
 export async function resolveModSourceWorkspace(candidate?: string): Promise<ModSourceWorkspace> {
   const workspaceRoot = resolveModSourceDir(candidate)
   const workspaceStats = await safeStat(workspaceRoot)
@@ -78,6 +93,7 @@ export function getModSourcePaths(sourceDir: string): ModSourcePaths {
   }
 }
 
+/** Counts `.cs` files under the root, honoring the skip list. */
 export async function countModSourceCSharpFiles(sourceRoot: string): Promise<number> {
   let count = 0
 
@@ -88,6 +104,7 @@ export async function countModSourceCSharpFiles(sourceRoot: string): Promise<num
   return count
 }
 
+/** Depth-first async walk yielding every `.cs` file path. */
 export async function* walkModSourceCSharpFiles(dir: string): AsyncGenerator<string> {
   const entries = await readdir(dir, { withFileTypes: true })
 
@@ -114,6 +131,8 @@ export function shouldSkipModSourceDirectory(name: string): boolean {
   return MOD_SOURCE_IGNORED_DIRECTORY_NAMES.some(candidate => candidate === normalized)
 }
 
+// A root named `src` is the source root itself; otherwise a nested `src`
+// directory wins over the bare root (solution layout convention).
 async function resolveEffectiveSourceRoot(workspaceRoot: string): Promise<string> {
   if (basename(workspaceRoot).toLowerCase() === 'src') {
     return workspaceRoot
