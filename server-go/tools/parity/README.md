@@ -98,11 +98,62 @@ cd server-go && go test ./internal/parity/ -v
 |---|---|
 | `fts.BuildQuery` ← `buildFtsQuery` | ✅ 59 用例 |
 | `sandbox.ValidateAndResolve` ← `PathSandbox.validateAndResolve` | ✅ 34 用例（含 13 个拒绝） |
-| `report.Render` / `FormatAiScalar` ← `ai-text.ts` | ✅ 41 标量 + 12 渲染用例 |
-| `env` ← `utils/env.ts` | ⬜ 待补（路径拼接；Windows/Unix 分隔符需叉开测） |
-| `store` ← `db.ts` / `memory-db.ts` | ⬜ 待补（需真 SQLite，夹具用录制的查询结果） |
+| `report.Render` / `FormatAiScalar` ← `ai-text.ts` | ✅ 41 标量 + 12 渲染 |
+| `env.NormalizeGameID` / `GetGamePaths` ← `utils/env.ts` | ✅ 17 归一化 + 7 路径 × 13 字段 |
+| `store` ← `db.ts` / `memory-db.ts` | ⬜ **待补**（需真 SQLite，夹具用录制的查询结果） |
 
 **规律**：纯函数**全部**该进这个套件；带 IO 的用**录制的输入输出对**当夹具。
+
+---
+
+## ★ F15：`env` 移植时抓到的 4 个真 divergence
+
+### 1. 又是 `TrimSpace` —— 同一个陷阱，第二个单元踩到
+
+```
+normalizeGameId("\ufeffX")   go = "\ufeffx"   ts = "x"
+```
+
+Go 的 `unicode.IsSpace('\ufeff')` 是 **false**，JS 的 `trim()` **剪它**。
+已改用 ECMAScript 集合。**从文件读到的 game id 带 BOM 是完全可能的，所以这条是可达的，不是理论。**
+
+### 2. ★ 移植**静默丢掉了两个字段**
+
+TypeScript 返回 **13** 个字段，Go 结构体只有 **11** 个 ——
+`xmlParseReportPath` 与 `xmlParseReportMarkdownPath` **整个不见了**。
+
+> **只比值不比键，永远抓不到这个** —— 所以测试**先断言字段集，再比值**。
+
+### 3 & 4. 声明为"已知差异"，**不修**：Unicode 大小写折叠
+
+```
+normalizeGameId("İSTANBUL")   go = "istanbul"   ts = "i̇stanbul"
+normalizeGameId("ΣΊΣΥΦΟΣ")     go = "σίσυφοσ"     ts = "σίσυφος"
+```
+
+JS 的 `toLowerCase()` 实现 **Unicode SpecialCasing**，Go 的 `strings.ToLower` 只有**简单映射**。
+已逐 rune 核实：`U+0130` → Go `U+0069`，JS `U+0069 U+0307`；希腊尾 sigma `U+03C2` Go 不施加。
+
+**故意不复现**：game id 是 slug，这些输入**在这个函数的真实定义域之外**，
+而复现 SpecialCasing 等于**为不可能出现的输入内嵌一张大小写表**。
+**差异被"声明"在测试里的一张表中** —— 每条记录 TypeScript 会产出什么，
+**上游行为一变，这条就不再匹配、测试就报错**。**ASCII 全部逐字节一致。**
+
+> **这是诚实的中间路线**：非预期的不一致 = **失败**；已声明的差异 = **有界、有理由、且不会悄悄扩大**。
+
+### 根目录差异：**断言**而不是跳过
+
+TS 从**自己的源码位置**推根目录；Go 是独立二进制、没有源码，所以从 `BLORE_ROOT` 或repo 标记走。
+测试把 `BLORE_ROOT` 设成夹具记录的根，**前提不满足就 FAIL** ——
+**所以这个比较永远不会"悄悄变得没有意义"。**
+
+### 反向验证
+
+| 注入的 bug | 结果 |
+|---|---|
+| `jsTrim` 换回 `TrimSpace` | **FAIL** ✅ BOM 那条，且**提示里点名了原因** |
+| 去掉一个字段 | **FAIL** ✅ 字段集断言报出 |
+
 
 ---
 
