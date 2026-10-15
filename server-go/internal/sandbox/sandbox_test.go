@@ -26,8 +26,8 @@ func TestValidateAndResolve(t *testing.T) {
 	}
 
 	bad := []string{
-		`C:\Windows\win.ini`,      // cross-drive absolute
-		`\\server\share\x`,        // UNC
+		`C:\Windows\win.ini`,       // cross-drive absolute
+		`\\server\share\x`,         // UNC
 		`..\..\..\Windows\win.ini`, // parent traversal
 		"..",
 	}

@@ -27,10 +27,10 @@
 //	'""'      ''    <-- EMPTY               '""'
 //	'" "'     ''    <-- EMPTY               '""'
 //
-// Why the faithful path yields '': `'"'` trims to `'"'`, the quote is replaced by
+// Why the faithful path yields ”: `'"'` trims to `'"'`, the quote is replaced by
 // a space giving `' '`, and `' '` is TRUTHY in JavaScript — so the guard does not
 // fire. Execution falls through to the split, filter(Boolean) drops the empties,
-// and joining an empty list yields ''. Go reaches the same result for free:
+// and joining an empty list yields ”. Go reaches the same result for free:
 // strings.Fields(" ") is empty and strings.Join of nothing is "".
 //
 // This was measured, not reasoned about. The expected values in
@@ -38,7 +38,7 @@
 //
 // KNOWN HAZARD, deliberately preserved: an empty MATCH expression is not the same
 // as "match nothing". The guard is plainly meant to make empty input match
-// nothing (hence the '""' phrase), and quote-only input slipping past it to ''
+// nothing (hence the '""' phrase), and quote-only input slipping past it to ”
 // looks like an upstream oversight — but changing it here would make the port
 // disagree with the shipped TypeScript, which is worse while the port's whole
 // claim is losslessness. Parity first; divergence only as a recorded decision.
@@ -46,7 +46,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // HOW THIS FILE WAS ALMOST SHIPPED WRONG
 //
-// The first version of this file had the ordering right: it returned '' for
+// The first version of this file had the ordering right: it returned ” for
 // quote-only input, matching the TypeScript. A hand-written unit test in this
 // package asserted `"` -> '""' — the author's MISREADING of the TS. The test then
 // "failed", and the code was changed to match the test. The port was correct and

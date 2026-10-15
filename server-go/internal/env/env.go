@@ -21,17 +21,17 @@ const DefaultGameID = "bannerlord"
 
 // GamePaths mirrors getGamePaths() in src/utils/env.ts.
 type GamePaths struct {
-	GameID       string
-	Root         string
-	GameDistPath string
-	AssetsPath   string
-	ReportsPath  string
-	VersionPath  string
-	DefsPath     string
-	SourcePath   string
-	DBPath       string
-	MemoryDBPath string
-	SetupStatePath string
+	GameID            string
+	Root              string
+	GameDistPath      string
+	AssetsPath        string
+	ReportsPath       string
+	VersionPath       string
+	DefsPath          string
+	SourcePath        string
+	DBPath            string
+	MemoryDBPath      string
+	SetupStatePath    string
 	CSharpAstDumpPath string
 }
 
@@ -109,17 +109,17 @@ func GetGamePaths(gameID string) GamePaths {
 	reportsPath := filepath.Join(gameDistPath, "reports")
 
 	return GamePaths{
-		GameID:       id,
-		Root:         root,
-		GameDistPath: gameDistPath,
-		AssetsPath:   assetsPath,
-		ReportsPath:  reportsPath,
-		VersionPath:  filepath.Join(gameDistPath, "Version.txt"),
-		DefsPath:     filepath.Join(assetsPath, "Xmls"),
-		SourcePath:   filepath.Join(assetsPath, "Source"),
-		DBPath:       filepath.Join(gameDistPath, id+".db"),
-		MemoryDBPath: filepath.Join(gameDistPath, id+"-memory.db"),
-		SetupStatePath:   filepath.Join(gameDistPath, "setup-state.json"),
+		GameID:            id,
+		Root:              root,
+		GameDistPath:      gameDistPath,
+		AssetsPath:        assetsPath,
+		ReportsPath:       reportsPath,
+		VersionPath:       filepath.Join(gameDistPath, "Version.txt"),
+		DefsPath:          filepath.Join(assetsPath, "Xmls"),
+		SourcePath:        filepath.Join(assetsPath, "Source"),
+		DBPath:            filepath.Join(gameDistPath, id+".db"),
+		MemoryDBPath:      filepath.Join(gameDistPath, id+"-memory.db"),
+		SetupStatePath:    filepath.Join(gameDistPath, "setup-state.json"),
 		CSharpAstDumpPath: filepath.Join(gameDistPath, "csharp-index.json"),
 	}
 }

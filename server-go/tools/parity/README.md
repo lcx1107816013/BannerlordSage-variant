@@ -98,8 +98,67 @@ cd server-go && go test ./internal/parity/ -v
 |---|---|
 | `fts.BuildQuery` ← `buildFtsQuery` | ✅ 59 用例 |
 | `sandbox.ValidateAndResolve` ← `PathSandbox.validateAndResolve` | ✅ 34 用例（含 13 个拒绝） |
-| `report` ← `ai-text.ts` | ⬜ 待补（纯字符串渲染，最好做差分） |
-| `env` ← `utils/env.ts` | ⬜ 待补（路径拼接，Windows/Unix 差异需叉开测） |
-| `store` ← `db.ts` / `memory-db.ts` | ⬜ 待补（需真 SQLite，夹具用查询结果） |
+| `report.Render` / `FormatAiScalar` ← `ai-text.ts` | ✅ 41 标量 + 12 渲染用例 |
+| `env` ← `utils/env.ts` | ⬜ 待补（路径拼接；Windows/Unix 分隔符需叉开测） |
+| `store` ← `db.ts` / `memory-db.ts` | ⬜ 待补（需真 SQLite，夹具用录制的查询结果） |
 
 **规律**：纯函数**全部**该进这个套件；带 IO 的用**录制的输入输出对**当夹具。
+
+---
+
+## ★ F13：`report` 移植时抓到的三个真问题
+
+全部是"**先有兄弟套件的方法论、这次照着做、于是当场抓到**"。
+
+### 1. ★ 真实 divergence：JS `trim()` ≠ Go `TrimSpace`
+
+```
+tag=string value="\ufeff"   go = "\ufeff"   ts = "unknown"
+```
+
+两者**修剪的是不同的集合，而且两个方向都不一样**：
+
+| 码点 | JS `trim()` | Go `TrimSpace` |
+|---|---|---|
+| U+FEFF BOM / ZWNBSP | **剪** ✔ | 不剪 ✗ ← **JS 剪，Go 不剪** |
+| U+0085 NEL | 不剪 ✗ | **剪** ✔ ← **Go 剪，JS 不剪** |
+
+**所以换用 `strings.TrimSpace` 是两头都错**，而且**任何拉丁文本的用例都看不见**。
+我原来的注释**声称两者一致** —— 测量说不是。已实现 ECMAScript 的**精确集合**（`jsTrim`），
+并**把两个方向都钉进测试**（U+0085 那条专门用来拦"顺手简化成 TrimSpace"的人）。
+
+### 2. 数字格式化：JS `String(n)` 不是任一个 Go verb
+
+| 值 | JS | Go `'g'` | Go `'f'` |
+|---|---|---|---|
+| `1e-5` | `0.00001` | `1e-05` ✗ | `0.00001` ✓ |
+| `1e-7` | `1e-7` | `1e-07` ✗ | `0.0000001` ✗ |
+| `1e20` | `100000000000000000000` | `1e+20` ✗ | ✓ |
+
+**单个 verb 都不对**：JS 只在 `|x| ≥ 1e21` 或 `|x| < 1e-6` 时才用指数，且**指数不补零**。
+已照这两条规则实现，**两个边界都钉了测试**。
+
+### 3. ★★ 夹具本身会"看起来像覆盖"
+
+三次连环缺陷，**每一次都是"套件打印了 compared N cases，但其实没测到东西"**：
+
+| 缺陷 | 症状 | 怎么发现 |
+|---|---|---|
+| 生成器**只发了 result、没发 inputs** | Go 拿空串去比，12 个渲染用例里 8 个是空的 | 断言"inputs 必须存在且真实" |
+| 生成器**把带 tag 的对象直接喂给 TS** | `String({...})` = `"[object Object]"`，**10 个期望值是垃圾**；另 2 个抛 `value?.trim is not a function` | 断言期望值里**不含** `[object Object]` |
+| `JSON.stringify` **把 NaN 写成 null** | Go 解出 `0`，报 `nan: 0` vs `nan: NaN` —— **夹具缺陷伪装成移植缺陷** | 用 replacer 统一处理非有限数 |
+
+**共同教训**：**"比较了 N 个用例"不等于"N 个用例都有效"。**
+夹具必须有**存在性断言**（非空、非哨兵、inputs 真实），否则覆盖是假的。
+
+---
+
+## ★ 反向验证（证明套件"能红"）
+
+| 注入的 bug | 结果 |
+|---|---|
+| `jsTrim` 换回 `strings.TrimSpace` | **FAIL** ✅ `go="\ufeff" ts="unknown"` |
+| 数字格式化换回 Go 默认 `'g'` | **FAIL** ✅ 5 条（`1e-05`、`1e-06`、`1e-07`、`1.5e-07`、`1e+20`） |
+
+两次都红得干净，恢复后重新全绿。
+
