@@ -1,3 +1,4 @@
+// Default entrypoint: bannerlord profile with the query-first tool tier.
 process.env.BANNERSAGE_GAME = 'bannerlord'
 process.env.BANNERSAGE_TOOLSET ||= 'query-first'
 

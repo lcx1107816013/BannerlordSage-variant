@@ -8,20 +8,26 @@ import { projectMemoryWakeup } from '../tools/project-memory-wakeup'
 import { closeMemoryDb } from '../utils/memory-db'
 import { getGamePaths } from '../utils/env'
 
+/**
+ * End-to-end verification of the project-memory sidecar DB. Runs against a
+ * dedicated fake game id so the real `bannerlord` memory database is never
+ * touched; that guarantee is itself asserted at the end.
+ */
 const TEST_GAME_ID = 'bannerlord-memory-smoke'
+
+const SAMPLE_MEMORY_TEXT =
+  'Store project memory in a sidecar SQLite database instead of mixing it into the gameplay index.'
 
 async function main() {
   process.env.BANNERSAGE_GAME = TEST_GAME_ID
   const paths = getGamePaths(TEST_GAME_ID)
   const defaultPaths = getGamePaths('bannerlord')
   const defaultMemoryDbExistedBefore = existsSync(defaultPaths.memoryDbPath)
-  await cleanup(paths.memoryDbPath)
-  await cleanup(`${paths.memoryDbPath}-shm`)
-  await cleanup(`${paths.memoryDbPath}-wal`)
+  await removeDatabaseFiles(paths.memoryDbPath)
 
   try {
     const added = await projectMemoryAdd(
-      'Store project memory in a sidecar SQLite database instead of mixing it into the gameplay index.',
+      SAMPLE_MEMORY_TEXT,
       'bannerlordsage',
       'memory',
       'decision',
@@ -32,8 +38,10 @@ async function main() {
     )
     assertIncludes(added.content[0]?.text, 'project_memory_add', 'single add report')
 
+    // An identical add must be recognized as a duplicate and return the
+    // original id instead of creating a second row.
     const deduped = await projectMemoryAdd(
-      'Store project memory in a sidecar SQLite database instead of mixing it into the gameplay index.',
+      SAMPLE_MEMORY_TEXT,
       'bannerlordsage',
       'memory',
       'decision',
@@ -51,7 +59,7 @@ async function main() {
       'memory',
       'verify-memory',
       'Session captured durable memory rules',
-      ['Prefer batch capture for end-of-task memory writes.'],
+      ['Prefer batch capture for end-task memory writes.'],
       ['Do not store every command output as memory.'],
       ['Prefer concrete summaries over verbose transcripts.'],
       ['Document the workflow in README and AGENTS.'],
@@ -75,6 +83,8 @@ async function main() {
     const invalidated = await projectMemoryInvalidate(addedId, 'verify cleanup')
     assertIncludes(invalidated.content[0]?.text, 'project_memory_invalidate', 'invalidate report')
 
+    // Default search hides invalidated rows; the explicit include-inactive
+    // flag must bring them back.
     const activeSearch = await projectMemorySearch('sidecar SQLite database', 'bannerlordsage', 'memory')
     assert(!containsMemoryId(activeSearch.content[0]?.text, addedId), 'inactive memories excluded from default search')
 
@@ -94,27 +104,29 @@ async function main() {
     if (!defaultMemoryDbExistedBefore) {
       assert(!existsSync(defaultPaths.memoryDbPath), 'verify script must not write to default bannerlord memory DB')
     }
-    await cleanup(paths.memoryDbPath)
-    await cleanup(`${paths.memoryDbPath}-shm`)
-    await cleanup(`${paths.memoryDbPath}-wal`)
+    await removeDatabaseFiles(paths.memoryDbPath)
   }
 }
 
-async function cleanup(path: string) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    if (!existsSync(path)) {
-      return
-    }
-
-    try {
-      rmSync(path, { force: true })
-      return
-    } catch (error) {
-      if (attempt === 4) {
-        throw error
+/** Deletes the SQLite file plus its WAL/SHM sidecars, retrying briefly on locks. */
+async function removeDatabaseFiles(basePath: string) {
+  for (const suffix of ['', '-shm', '-wal']) {
+    const path = `${basePath}${suffix}`
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (!existsSync(path)) {
+        break
       }
 
-      await Bun.sleep(100 * (attempt + 1))
+      try {
+        rmSync(path, { force: true })
+        break
+      } catch (error) {
+        if (attempt === 4) {
+          throw error
+        }
+
+        await Bun.sleep(100 * (attempt + 1))
+      }
     }
   }
 }

@@ -26,6 +26,11 @@ export type ModSourceIndexSummary = {
   dbPath: string
 }
 
+/**
+ * Indexes a local mod's C# sources into its own workspace database. The
+ * revision file is (re)written whenever content actually changed, or when
+ * no revision exists yet, so downstream freshness checks can key on it.
+ */
 export async function buildModSourceIndex(sourceDir?: string): Promise<ModSourceIndexSummary> {
   const workspace = await resolveModSourceWorkspace(sourceDir)
   const csharpFileCount = await countModSourceCSharpFiles(workspace.sourceRoot)
@@ -42,12 +47,10 @@ export async function buildModSourceIndex(sourceDir?: string): Promise<ModSource
     ignoreDirectoryNames: [...MOD_SOURCE_IGNORED_DIRECTORY_NAMES],
   })
 
-  const shouldWriteRevision =
-    result.changedFiles > 0 || result.removedFiles > 0 || readRevisionFile(workspace.versionPath).length === 0
-
-  if (shouldWriteRevision) {
-    const revision = new Date().toISOString()
-    await writeRevisionFile(workspace.versionPath, revision)
+  const contentChanged = result.changedFiles > 0 || result.removedFiles > 0
+  const noRevisionYet = readRevisionFile(workspace.versionPath).length === 0
+  if (contentChanged || noRevisionYet) {
+    await writeRevisionFile(workspace.versionPath, new Date().toISOString())
   }
 
   console.log(`Mod source workspace root: ${workspace.workspaceRoot}`)
@@ -79,6 +82,7 @@ export async function runModSourceIndex(args = process.argv.slice(2)): Promise<v
   await buildModSourceIndex(options.sourceDir)
 }
 
+/** Supports `--source-dir <path>`, `--source-dir=<path>`, and a bare path. */
 function parseArgs(args: string[]): CliOptions {
   const result: CliOptions = {
     sourceDir: undefined,
@@ -87,10 +91,9 @@ function parseArgs(args: string[]): CliOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
-    const next = args[index + 1]
 
-    if (arg === '--source-dir' && next) {
-      result.sourceDir = next
+    if (arg === '--source-dir' && args[index + 1]) {
+      result.sourceDir = args[index + 1]
       index += 1
       continue
     }

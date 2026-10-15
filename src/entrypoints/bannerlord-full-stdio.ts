@@ -1,3 +1,4 @@
+// Authoring entrypoint: bannerlord profile with every tool tier registered.
 process.env.BANNERSAGE_GAME = 'bannerlord'
 process.env.BANNERSAGE_TOOLSET = 'full'
 

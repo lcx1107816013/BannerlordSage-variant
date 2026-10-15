@@ -9,57 +9,33 @@ type SmokeCheck = {
   name: string
   command: string[]
   timeoutMs?: number
+  /** Substring that must appear in the output before the process is killed. */
   expectText?: string
 }
 
+type CheckResult = {
+  ok: boolean
+  output: string
+}
+
+const DEFAULT_CHECK_TIMEOUT_MS = 30_000
+
+/**
+ * Release smoke: runs the documented CLI surfaces end-to-end. Without
+ * `--game-dir` it validates only the cheap help/import checks; with a real
+ * game directory it also exercises the full setup flow (slow, or a
+ * single-DLL `--quick` variant) and the server's start readiness.
+ */
 export async function runReleaseSmoke(args = process.argv.slice(2)): Promise<void> {
   const options = parseArgs(args)
   if (options.help) {
     printHelpAndExit()
   }
 
-  const checks: SmokeCheck[] = [
-    {
-      name: 'setup help',
-      command: ['bun', 'run', 'setup', '--', '--help'],
-      timeoutMs: 30000,
-    },
-    {
-      name: 'bannerlord setup help',
-      command: ['bun', 'run', 'setup:bannerlord', '--', '--help'],
-      timeoutMs: 30000,
-    },
-    {
-      name: 'start import',
-      command: ['bun', '-e', "import('./src/stdio.ts').then(() => console.log('stdio import ok'))"],
-      timeoutMs: 30000,
-      expectText: 'stdio import ok',
-    },
-  ]
+  const checks: SmokeCheck[] = baseChecks()
 
   if (options.gameDir) {
-    checks.push({
-      name: 'scope report',
-      command: ['bun', 'run', 'report:scopes', '--', '--game-dir', options.gameDir],
-      timeoutMs: 2 * 60_000,
-      expectText: 'DLL scopes',
-    })
-
-    checks.push({
-      name: options.quick ? 'quick setup flow' : 'documented setup flow',
-      command: buildSetupCommand(options.gameDir, options.quick),
-      timeoutMs: options.quick ? 10 * 60_000 : 60 * 60_000,
-      expectText: 'Setup complete.',
-    })
-
-    if (!options.skipStart && !options.quick) {
-      checks.push({
-        name: 'start readiness',
-        command: ['bun', 'run', 'start'],
-        timeoutMs: 15000,
-        expectText: 'BannerlordSage MCP is ready and waiting for a client connection.',
-      })
-    }
+    checks.push(...gameDirChecks(options.gameDir, options))
   }
 
   let passed = 0
@@ -68,12 +44,7 @@ export async function runReleaseSmoke(args = process.argv.slice(2)): Promise<voi
     const result = await runCheck(check)
     if (!result.ok) {
       throw new Error(
-        [
-          `Smoke check failed: ${check.name}`,
-          result.output.trim(),
-        ]
-          .filter(Boolean)
-          .join('\n')
+        [`Smoke check failed: ${check.name}`, result.output.trim()].filter(Boolean).join('\n')
       )
     }
 
@@ -90,6 +61,69 @@ export async function runReleaseSmoke(args = process.argv.slice(2)): Promise<voi
   console.log(`\nSmoke checks passed: ${passed}`)
 }
 
+function baseChecks(): SmokeCheck[] {
+  return [
+    {
+      name: 'setup help',
+      command: ['bun', 'run', 'setup', '--', '--help'],
+      timeoutMs: 30000,
+    },
+    {
+      name: 'bannerlord setup help',
+      command: ['bun', 'run', 'setup:bannerlord', '--', '--help'],
+      timeoutMs: 30000,
+    },
+    {
+      name: 'start import',
+      // Importing the stdio module proves the server graph wires up; the
+      // sentinel text lets us kill it before it waits for a client.
+      command: ['bun', '-e', "import('./src/stdio.ts').then(() => console.log('stdio import ok'))"],
+      timeoutMs: 30000,
+      expectText: 'stdio import ok',
+    },
+  ]
+}
+
+function gameDirChecks(gameDir: string, options: SmokeOptions): SmokeCheck[] {
+  const checks: SmokeCheck[] = [
+    {
+      name: 'scope report',
+      command: ['bun', 'run', 'report:scopes', '--', '--game-dir', gameDir],
+      timeoutMs: 2 * 60_000,
+      expectText: 'DLL scopes',
+    },
+    {
+      name: options.quick ? 'quick setup flow' : 'documented setup flow',
+      command: buildSetupCommand(gameDir, options.quick),
+      timeoutMs: options.quick ? 10 * 60_000 : 60 * 60_000,
+      expectText: 'Setup complete.',
+    },
+  ]
+
+  if (!options.skipStart && !options.quick) {
+    checks.push({
+      name: 'start readiness',
+      command: ['bun', 'run', 'start'],
+      timeoutMs: 15000,
+      expectText: 'BannerlordSage MCP is ready and waiting for a client connection.',
+    })
+  }
+
+  return checks
+}
+
+function buildSetupCommand(gameDir: string, quick: boolean): string[] {
+  const base = ['bun', 'run', 'setup', '--', '--accept-disclaimer', '--game-dir', gameDir]
+  if (!quick) {
+    return base
+  }
+
+  return [...base, '--dll', 'TaleWorlds.CampaignSystem.dll', '--skip-xml', '--no-index']
+}
+
+/**
+ * Walker supporting both `--flag value` and `--flag=value` spellings.
+ */
 function parseArgs(args: string[]): SmokeOptions {
   const result: SmokeOptions = {
     quick: false,
@@ -99,10 +133,9 @@ function parseArgs(args: string[]): SmokeOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
-    const next = args[index + 1]
 
-    if (arg === '--game-dir' && next) {
-      result.gameDir = next
+    if (arg === '--game-dir' && args[index + 1]) {
+      result.gameDir = args[index + 1]
       index += 1
       continue
     }
@@ -124,7 +157,6 @@ function parseArgs(args: string[]): SmokeOptions {
 
     if (arg === '--help' || arg === '-h') {
       result.help = true
-      continue
     }
   }
 
@@ -147,64 +179,56 @@ Options:
   process.exit(0)
 }
 
-function buildSetupCommand(gameDir: string, quick: boolean): string[] {
-  const base = ['bun', 'run', 'setup', '--', '--accept-disclaimer', '--game-dir', gameDir]
-  if (!quick) {
-    return base
-  }
-
-  return [
-    ...base,
-    '--dll',
-    'TaleWorlds.CampaignSystem.dll',
-    '--skip-xml',
-    '--no-index',
-  ]
-}
-
-async function runCheck(check: SmokeCheck): Promise<{ ok: boolean; output: string }> {
+/**
+ * Runs one check to completion (or until the expect-text fires, at which
+ * point the child is killed and the check counts as passed).
+ */
+async function runCheck(check: SmokeCheck): Promise<CheckResult> {
   const proc = Bun.spawn(check.command, {
     stdout: 'pipe',
     stderr: 'pipe',
   })
 
   const buffers = { stdout: '', stderr: '' }
-  const stdoutPump = pumpStream(proc.stdout, chunk => {
-    buffers.stdout += chunk
-  })
-  const stderrPump = pumpStream(proc.stderr, chunk => {
-    buffers.stderr += chunk
-  })
+  const pipes = [
+    drainInto(proc.stdout, chunk => {
+      buffers.stdout += chunk
+    }),
+    drainInto(proc.stderr, chunk => {
+      buffers.stderr += chunk
+    }),
+  ]
 
-  const timeoutMs = check.timeoutMs ?? 30000
-  const start = Date.now()
+  const timeoutMs = check.timeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS
+  const deadline = Date.now() + timeoutMs
 
   while (true) {
-    const combined = `${buffers.stdout}\n${buffers.stderr}`
+    const output = `${buffers.stdout}\n${buffers.stderr}`
 
-    if (check.expectText && combined.includes(check.expectText)) {
+    if (check.expectText && output.includes(check.expectText)) {
       proc.kill()
-      await Promise.allSettled([stdoutPump, stderrPump, proc.exited])
-      return { ok: true, output: combined }
+      await Promise.allSettled([...pipes, proc.exited])
+      return { ok: true, output }
     }
 
-    const exitCode = await Promise.race([
-      proc.exited.then(code => ({ done: true as const, code })),
-      sleep(200).then(() => ({ done: false as const, code: -1 })),
+    const exited = await Promise.race([
+      proc.exited.then(() => true),
+      sleep(200).then(() => false),
     ])
 
-    if (exitCode.done) {
-      await Promise.allSettled([stdoutPump, stderrPump])
-      const output = `${buffers.stdout}\n${buffers.stderr}`
+    if (exited) {
+      await Promise.allSettled(pipes)
+      const finalOutput = `${buffers.stdout}\n${buffers.stderr}`
+      const code = await proc.exited
       return {
-        ok: exitCode.code === 0 && (!check.expectText || output.includes(check.expectText)),
-        output,
+        ok: code === 0 && (!check.expectText || finalOutput.includes(check.expectText)),
+        output: finalOutput,
       }
     }
 
-    if (Date.now() - start > timeoutMs) {
+    if (Date.now() > deadline) {
       proc.kill()
-      await Promise.allSettled([stdoutPump, stderrPump, proc.exited])
+      await Promise.allSettled([...pipes, proc.exited])
       return {
         ok: false,
         output: `${buffers.stdout}\n${buffers.stderr}\nTimed out after ${timeoutMs}ms.`,
@@ -213,7 +237,8 @@ async function runCheck(check: SmokeCheck): Promise<{ ok: boolean; output: strin
   }
 }
 
-async function pumpStream(
+/** Reads a stream to completion, forwarding decoded text chunks. */
+async function drainInto(
   stream: ReadableStream<Uint8Array> | null,
   onChunk: (chunk: string) => void
 ): Promise<void> {

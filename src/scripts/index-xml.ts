@@ -6,6 +6,17 @@ import { normalizeBannerlordPolicyId } from '../utils/bannerlord-policy-id'
 import { parser, readXmlTextFile } from '../utils/xml-utils'
 import { getGamePaths } from '../utils/env'
 
+/**
+ * XML index: scans the game's Modules tree for `.xml` files and folds each
+ * document into an incremental SQLite store — FTS over full document text,
+ * entity nodes, localization entries, and per-domain projections (items,
+ * troops, heroes, cultures, skills, clans, kingdoms, settlements).
+ *
+ * Only files whose size or mtime changed are re-parsed; removed files have
+ * their rows deleted. Parse failures are recorded per file and rendered
+ * into JSON + Markdown reports alongside the database.
+ */
+
 type XmlEntityRow = {
   entityType: string
   entityId: string
@@ -202,702 +213,216 @@ type IndexedXmlFileRow = {
 
 const XML_INSERT_BATCH_SIZE = 200
 const XML_INDEX_SCHEMA_VERSION = '2'
+const PARSE_FAILURE_PREVIEW_COUNT = 10
 
-export async function buildXmlIndex(gameId?: string): Promise<{
+type XmlIndexSummary = {
   filesIndexed: number
   entitiesIndexed: number
   localizationsIndexed: number
   parseFailures: number
   duplicateFilesSkipped: number
-}> {
-  return await buildXmlIndexIncremental(gameId)
+}
 
-  const {
-    defsPath,
-    dbPath,
-    reportsPath,
-    xmlParseReportPath,
-    xmlParseReportMarkdownPath,
-    gameId: resolvedGameId,
-  } =
+export async function buildXmlIndex(gameId?: string): Promise<XmlIndexSummary> {
+  const { defsPath, dbPath, reportsPath, xmlParseReportPath, xmlParseReportMarkdownPath, gameId: resolvedGameId } =
     getGamePaths(gameId)
   console.log(`Building XML index from ${defsPath}`)
+
   const db = new Database(dbPath)
 
-  db.run('PRAGMA busy_timeout = 5000;')
-  db.run('PRAGMA journal_mode = WAL;')
-  db.run('DROP TABLE IF EXISTS xml_documents_fts;')
-  db.run('DROP TABLE IF EXISTS xml_entities;')
-  db.run('DROP TABLE IF EXISTS localization_entries;')
-  db.run('DROP TABLE IF EXISTS bannerlord_items;')
-  db.run('DROP TABLE IF EXISTS bannerlord_troops;')
-  db.run('DROP TABLE IF EXISTS bannerlord_heroes;')
-  db.run('DROP TABLE IF EXISTS bannerlord_cultures;')
-  db.run('DROP TABLE IF EXISTS bannerlord_skills;')
-  db.run('DROP TABLE IF EXISTS bannerlord_clans;')
-  db.run('DROP TABLE IF EXISTS bannerlord_kingdoms;')
-  db.run('DROP TABLE IF EXISTS bannerlord_settlements;')
+  try {
+    db.run('PRAGMA busy_timeout = 5000;')
+    db.run('PRAGMA journal_mode = WAL;')
 
-  db.run(`
-    CREATE VIRTUAL TABLE xml_documents_fts USING fts5(
-      filePath,
-      moduleName,
-      content,
-      tokenize = 'unicode61',
-      prefix = '2 3 4'
-    );
-  `)
+    if (!hasXmlIncrementalSchema(db)) {
+      resetXmlSchema(db)
+    } else {
+      ensureXmlSchema(db)
+    }
 
-  db.run(`
-    CREATE TABLE xml_entities (
-      entityType TEXT NOT NULL,
-      entityId TEXT NOT NULL,
-      name TEXT,
-      filePath TEXT NOT NULL,
-      PRIMARY KEY (entityType, entityId, filePath)
-    );
-  `)
+    const { files: sourceFiles, duplicateFilesSkipped } = await collectXmlSourceFiles(defsPath)
+    const previouslyIndexed = loadIndexedXmlFiles(db)
+    const changedFiles = sourceFiles.filter(file => {
+      const previous = previouslyIndexed.get(file.relativePath)
+      return !previous || previous.fileSize !== file.size || previous.fileMtimeMs !== file.mtimeMs
+    })
+    const currentPaths = new Set(sourceFiles.map(file => file.relativePath))
+    const stalePaths = [...previouslyIndexed.keys()].filter(path => !currentPaths.has(path))
 
-  db.run(`
-    CREATE TABLE localization_entries (
-      language TEXT NOT NULL,
-      stringId TEXT NOT NULL,
-      text TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      PRIMARY KEY (language, stringId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_items (
-      entityId TEXT NOT NULL,
-      entityKind TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      itemType TEXT,
-      weight TEXT,
-      value TEXT,
-      weaponLength TEXT,
-      swingDamage TEXT,
-      swingDamageType TEXT,
-      thrustDamage TEXT,
-      thrustDamageType TEXT,
-      speedRating TEXT,
-      balanceOrHitPoints TEXT,
-      headArmor TEXT,
-      bodyArmor TEXT,
-      legArmor TEXT,
-      armArmor TEXT,
-      horseChargeDamage TEXT,
-      horseSpeed TEXT,
-      horseManeuver TEXT,
-      tier TEXT,
-      pieceType TEXT,
-      length TEXT,
-      materialCount INTEGER,
-      PRIMARY KEY (entityId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_troops (
-      characterId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      level TEXT,
-      culture TEXT,
-      occupation TEXT,
-      skillTemplate TEXT,
-      isHero INTEGER NOT NULL,
-      isFemale INTEGER NOT NULL,
-      upgradeTargetsJson TEXT NOT NULL,
-      PRIMARY KEY (characterId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_heroes (
-      heroId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      faction TEXT,
-      clan TEXT,
-      spouse TEXT,
-      father TEXT,
-      mother TEXT,
-      alive TEXT,
-      isTemplate INTEGER NOT NULL,
-      text TEXT,
-      PRIMARY KEY (heroId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_cultures (
-      cultureId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      descriptionText TEXT,
-      isMainCulture INTEGER NOT NULL,
-      color TEXT,
-      color2 TEXT,
-      basicTroop TEXT,
-      eliteBasicTroop TEXT,
-      canHaveSettlement TEXT,
-      boardGameType TEXT,
-      maleNameCount INTEGER NOT NULL,
-      femaleNameCount INTEGER NOT NULL,
-      defaultPolicyIdsJson TEXT NOT NULL,
-      defaultPolicyCount INTEGER NOT NULL,
-      PRIMARY KEY (cultureId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_skills (
-      skillId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      documentation TEXT,
-      modifierCount INTEGER NOT NULL,
-      modifiersJson TEXT NOT NULL,
-      PRIMARY KEY (skillId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_clans (
-      clanId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      shortName TEXT,
-      descriptionText TEXT,
-      culture TEXT,
-      owner TEXT,
-      initialHomeSettlement TEXT,
-      superFaction TEXT,
-      tier TEXT,
-      isNoble INTEGER NOT NULL,
-      isMinorFaction INTEGER NOT NULL,
-      isBandit INTEGER NOT NULL,
-      isOutlaw INTEGER NOT NULL,
-      isMafia INTEGER NOT NULL,
-      isMercenary INTEGER NOT NULL,
-      color TEXT,
-      color2 TEXT,
-      templateCount INTEGER NOT NULL,
-      PRIMARY KEY (clanId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_kingdoms (
-      kingdomId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      shortName TEXT,
-      title TEXT,
-      rulerTitle TEXT,
-      descriptionText TEXT,
-      culture TEXT,
-      owner TEXT,
-      initialHomeSettlement TEXT,
-      color TEXT,
-      color2 TEXT,
-      primaryBannerColor TEXT,
-      secondaryBannerColor TEXT,
-      relationshipCount INTEGER NOT NULL,
-      policyCount INTEGER NOT NULL,
-      policyIdsJson TEXT NOT NULL,
-      PRIMARY KEY (kingdomId, filePath)
-    );
-  `)
-
-  db.run(`
-    CREATE TABLE bannerlord_settlements (
-      settlementId TEXT NOT NULL,
-      filePath TEXT NOT NULL,
-      name TEXT,
-      descriptionText TEXT,
-      owner TEXT,
-      culture TEXT,
-      settlementType TEXT,
-      componentId TEXT,
-      boundSettlement TEXT,
-      villageType TEXT,
-      prosperityOrHearth TEXT,
-      positionX TEXT,
-      positionY TEXT,
-      sceneName TEXT,
-      locationCount INTEGER NOT NULL,
-      buildingCount INTEGER NOT NULL,
-      PRIMARY KEY (settlementId, filePath)
-    );
-  `)
-
-  db.run('CREATE INDEX xml_entities_entity_id_idx ON xml_entities(entityId);')
-  db.run('CREATE INDEX xml_entities_entity_type_idx ON xml_entities(entityType);')
-  db.run('CREATE INDEX xml_entities_type_id_idx ON xml_entities(entityType, entityId);')
-  db.run('CREATE INDEX localization_entries_string_id_idx ON localization_entries(stringId);')
-  db.run('CREATE INDEX localization_entries_id_language_idx ON localization_entries(stringId, language);')
-  db.run('CREATE INDEX bannerlord_items_entity_id_idx ON bannerlord_items(entityId);')
-  db.run('CREATE INDEX bannerlord_troops_character_id_idx ON bannerlord_troops(characterId);')
-  db.run('CREATE INDEX bannerlord_heroes_hero_id_idx ON bannerlord_heroes(heroId);')
-  db.run('CREATE INDEX bannerlord_cultures_culture_id_idx ON bannerlord_cultures(cultureId);')
-  db.run('CREATE INDEX bannerlord_skills_skill_id_idx ON bannerlord_skills(skillId);')
-  db.run('CREATE INDEX bannerlord_clans_clan_id_idx ON bannerlord_clans(clanId);')
-  db.run('CREATE INDEX bannerlord_kingdoms_kingdom_id_idx ON bannerlord_kingdoms(kingdomId);')
-  db.run('CREATE INDEX bannerlord_settlements_settlement_id_idx ON bannerlord_settlements(settlementId);')
-
-  const deleteFtsByPath = db.prepare(`
-    DELETE FROM xml_documents_fts
-    WHERE filePath = $filePath
-  `)
-  const insertFts = db.prepare(`
-    INSERT INTO xml_documents_fts (filePath, moduleName, content)
-    VALUES ($filePath, $moduleName, $content)
-  `)
-  const insertEntity = db.prepare(`
-    INSERT OR IGNORE INTO xml_entities (entityType, entityId, name, filePath)
-    VALUES ($entityType, $entityId, $name, $filePath)
-  `)
-  const insertLocalization = db.prepare(`
-    INSERT OR IGNORE INTO localization_entries (language, stringId, text, filePath)
-    VALUES ($language, $stringId, $text, $filePath)
-  `)
-  const insertItemProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_items (
-      entityId, entityKind, filePath, name, itemType, weight, value,
-      weaponLength, swingDamage, swingDamageType, thrustDamage, thrustDamageType,
-      speedRating, balanceOrHitPoints, headArmor, bodyArmor, legArmor, armArmor,
-      horseChargeDamage, horseSpeed, horseManeuver, tier, pieceType, length, materialCount
-    ) VALUES (
-      $entityId, $entityKind, $filePath, $name, $itemType, $weight, $value,
-      $weaponLength, $swingDamage, $swingDamageType, $thrustDamage, $thrustDamageType,
-      $speedRating, $balanceOrHitPoints, $headArmor, $bodyArmor, $legArmor, $armArmor,
-      $horseChargeDamage, $horseSpeed, $horseManeuver, $tier, $pieceType, $length, $materialCount
-    )
-  `)
-  const insertTroopProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_troops (
-      characterId, filePath, name, level, culture, occupation, skillTemplate, isHero, isFemale, upgradeTargetsJson
-    ) VALUES (
-      $characterId, $filePath, $name, $level, $culture, $occupation, $skillTemplate, $isHero, $isFemale, $upgradeTargetsJson
-    )
-  `)
-  const insertHeroProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_heroes (
-      heroId, filePath, faction, clan, spouse, father, mother, alive, isTemplate, text
-    ) VALUES (
-      $heroId, $filePath, $faction, $clan, $spouse, $father, $mother, $alive, $isTemplate, $text
-    )
-  `)
-  const insertCultureProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_cultures (
-      cultureId, filePath, name, descriptionText, isMainCulture, color, color2,
-      basicTroop, eliteBasicTroop, canHaveSettlement, boardGameType,
-      maleNameCount, femaleNameCount, defaultPolicyIdsJson, defaultPolicyCount
-    ) VALUES (
-      $cultureId, $filePath, $name, $descriptionText, $isMainCulture, $color, $color2,
-      $basicTroop, $eliteBasicTroop, $canHaveSettlement, $boardGameType,
-      $maleNameCount, $femaleNameCount, $defaultPolicyIdsJson, $defaultPolicyCount
-    )
-  `)
-  const insertSkillProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_skills (
-      skillId, filePath, name, documentation, modifierCount, modifiersJson
-    ) VALUES (
-      $skillId, $filePath, $name, $documentation, $modifierCount, $modifiersJson
-    )
-  `)
-  const insertClanProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_clans (
-      clanId, filePath, name, shortName, descriptionText, culture, owner, initialHomeSettlement,
-      superFaction, tier, isNoble, isMinorFaction, isBandit, isOutlaw, isMafia, isMercenary, color, color2, templateCount
-    ) VALUES (
-      $clanId, $filePath, $name, $shortName, $descriptionText, $culture, $owner, $initialHomeSettlement,
-      $superFaction, $tier, $isNoble, $isMinorFaction, $isBandit, $isOutlaw, $isMafia, $isMercenary, $color, $color2, $templateCount
-    )
-  `)
-  const insertKingdomProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_kingdoms (
-      kingdomId, filePath, name, shortName, title, rulerTitle, descriptionText, culture, owner, initialHomeSettlement,
-      color, color2, primaryBannerColor, secondaryBannerColor, relationshipCount, policyCount, policyIdsJson
-    ) VALUES (
-      $kingdomId, $filePath, $name, $shortName, $title, $rulerTitle, $descriptionText, $culture, $owner, $initialHomeSettlement,
-      $color, $color2, $primaryBannerColor, $secondaryBannerColor, $relationshipCount, $policyCount, $policyIdsJson
-    )
-  `)
-  const insertSettlementProjection = db.prepare(`
-    INSERT OR REPLACE INTO bannerlord_settlements (
-      settlementId, filePath, name, descriptionText, owner, culture, settlementType, componentId, boundSettlement, villageType,
-      prosperityOrHearth, positionX, positionY, sceneName, locationCount, buildingCount
-    ) VALUES (
-      $settlementId, $filePath, $name, $descriptionText, $owner, $culture, $settlementType, $componentId, $boundSettlement, $villageType,
-      $prosperityOrHearth, $positionX, $positionY, $sceneName, $locationCount, $buildingCount
-    )
-  `)
-
-  const glob = new Glob('**/*.xml')
-  let fileCount = 0
-  let entityCount = 0
-  let localizationCount = 0
-  let duplicateFilesSkipped = 0
-  const parseFailures: XmlParseFailure[] = []
-  const seenFilePaths = new Set<string>()
-  const insertedDocumentPaths = new Set<string>()
-
-  const transaction = db.transaction((rows: XmlDocumentRow[]) => {
-    for (const row of rows) {
-      if (insertedDocumentPaths.has(row.filePath)) {
-        duplicateFilesSkipped += 1
-        continue
+    const statements = prepareXmlInsertStatements(db)
+    const wipeFile = (filePath: string) => {
+      deleteFtsByPath(db, filePath)
+      for (const table of XML_PROJECTION_TABLES) {
+        statements.deleteByFile[table].run({ $filePath: filePath })
       }
+      statements.deleteParseFailureByFile.run({ $filePath: filePath })
+    }
 
-      insertedDocumentPaths.add(row.filePath)
-      deleteFtsByPath.run({
-        $filePath: row.filePath,
+    if (stalePaths.length > 0) {
+      const purgeStale = db.transaction((paths: string[]) => {
+        for (const path of paths) {
+          wipeFile(path)
+          statements.deleteTrackedFile.run({ $filePath: path })
+        }
       })
-      insertFts.run({
-        $filePath: row.filePath,
-        $moduleName: row.moduleName,
-        $content: row.content,
-      })
-
-      for (const entity of dedupeXmlEntities(row.entities)) {
-        insertEntity.run({
-          $entityType: entity.entityType,
-          $entityId: entity.entityId,
-          $name: entity.name,
-          $filePath: entity.filePath,
-        })
-      }
-
-      for (const localization of dedupeLocalizations(row.localizations)) {
-        insertLocalization.run({
-          $language: localization.language,
-          $stringId: localization.stringId,
-          $text: localization.text,
-          $filePath: localization.filePath,
-        })
-      }
-
-      for (const item of dedupeItemProjections(row.itemProjections)) {
-        insertItemProjection.run({
-          $entityId: item.entityId,
-          $entityKind: item.entityKind,
-          $filePath: item.filePath,
-          $name: item.name,
-          $itemType: item.itemType,
-          $weight: item.weight,
-          $value: item.value,
-          $weaponLength: item.weaponLength,
-          $swingDamage: item.swingDamage,
-          $swingDamageType: item.swingDamageType,
-          $thrustDamage: item.thrustDamage,
-          $thrustDamageType: item.thrustDamageType,
-          $speedRating: item.speedRating,
-          $balanceOrHitPoints: item.balanceOrHitPoints,
-          $headArmor: item.headArmor,
-          $bodyArmor: item.bodyArmor,
-          $legArmor: item.legArmor,
-          $armArmor: item.armArmor,
-          $horseChargeDamage: item.horseChargeDamage,
-          $horseSpeed: item.horseSpeed,
-          $horseManeuver: item.horseManeuver,
-          $tier: item.tier,
-          $pieceType: item.pieceType,
-          $length: item.length,
-          $materialCount: item.materialCount,
-        })
-      }
-
-      for (const troop of dedupeTroopProjections(row.troopProjections)) {
-        insertTroopProjection.run({
-          $characterId: troop.characterId,
-          $filePath: troop.filePath,
-          $name: troop.name,
-          $level: troop.level,
-          $culture: troop.culture,
-          $occupation: troop.occupation,
-          $skillTemplate: troop.skillTemplate,
-          $isHero: troop.isHero,
-          $isFemale: troop.isFemale,
-          $upgradeTargetsJson: troop.upgradeTargetsJson,
-        })
-      }
-
-      for (const hero of dedupeHeroProjections(row.heroProjections)) {
-        insertHeroProjection.run({
-          $heroId: hero.heroId,
-          $filePath: hero.filePath,
-          $faction: hero.faction,
-          $clan: hero.clan,
-          $spouse: hero.spouse,
-          $father: hero.father,
-          $mother: hero.mother,
-          $alive: hero.alive,
-          $isTemplate: hero.isTemplate,
-          $text: hero.text,
-        })
-      }
-
-      for (const culture of dedupeCultureProjections(row.cultureProjections)) {
-        insertCultureProjection.run({
-          $cultureId: culture.cultureId,
-          $filePath: culture.filePath,
-          $name: culture.name,
-          $descriptionText: culture.descriptionText,
-          $isMainCulture: culture.isMainCulture,
-          $color: culture.color,
-          $color2: culture.color2,
-          $basicTroop: culture.basicTroop,
-          $eliteBasicTroop: culture.eliteBasicTroop,
-          $canHaveSettlement: culture.canHaveSettlement,
-          $boardGameType: culture.boardGameType,
-          $maleNameCount: culture.maleNameCount,
-          $femaleNameCount: culture.femaleNameCount,
-          $defaultPolicyIdsJson: culture.defaultPolicyIdsJson,
-          $defaultPolicyCount: culture.defaultPolicyCount,
-        })
-      }
-
-      for (const skill of dedupeSkillProjections(row.skillProjections)) {
-        insertSkillProjection.run({
-          $skillId: skill.skillId,
-          $filePath: skill.filePath,
-          $name: skill.name,
-          $documentation: skill.documentation,
-          $modifierCount: skill.modifierCount,
-          $modifiersJson: skill.modifiersJson,
-        })
-      }
-
-      for (const clan of dedupeClanProjections(row.clanProjections)) {
-        insertClanProjection.run({
-          $clanId: clan.clanId,
-          $filePath: clan.filePath,
-          $name: clan.name,
-          $shortName: clan.shortName,
-          $descriptionText: clan.descriptionText,
-          $culture: clan.culture,
-          $owner: clan.owner,
-          $initialHomeSettlement: clan.initialHomeSettlement,
-          $superFaction: clan.superFaction,
-          $tier: clan.tier,
-          $isNoble: clan.isNoble,
-          $isMinorFaction: clan.isMinorFaction,
-          $isBandit: clan.isBandit,
-          $isOutlaw: clan.isOutlaw,
-          $isMafia: clan.isMafia,
-          $isMercenary: clan.isMercenary,
-          $color: clan.color,
-          $color2: clan.color2,
-          $templateCount: clan.templateCount,
-        })
-      }
-
-      for (const kingdom of dedupeKingdomProjections(row.kingdomProjections)) {
-        insertKingdomProjection.run({
-          $kingdomId: kingdom.kingdomId,
-          $filePath: kingdom.filePath,
-          $name: kingdom.name,
-          $shortName: kingdom.shortName,
-          $title: kingdom.title,
-          $rulerTitle: kingdom.rulerTitle,
-          $descriptionText: kingdom.descriptionText,
-          $culture: kingdom.culture,
-          $owner: kingdom.owner,
-          $initialHomeSettlement: kingdom.initialHomeSettlement,
-          $color: kingdom.color,
-          $color2: kingdom.color2,
-          $primaryBannerColor: kingdom.primaryBannerColor,
-          $secondaryBannerColor: kingdom.secondaryBannerColor,
-          $relationshipCount: kingdom.relationshipCount,
-          $policyCount: kingdom.policyCount,
-          $policyIdsJson: kingdom.policyIdsJson,
-        })
-      }
-
-      for (const settlement of dedupeSettlementProjections(row.settlementProjections)) {
-        insertSettlementProjection.run({
-          $settlementId: settlement.settlementId,
-          $filePath: settlement.filePath,
-          $name: settlement.name,
-          $descriptionText: settlement.descriptionText,
-          $owner: settlement.owner,
-          $culture: settlement.culture,
-          $settlementType: settlement.settlementType,
-          $componentId: settlement.componentId,
-          $boundSettlement: settlement.boundSettlement,
-          $villageType: settlement.villageType,
-          $prosperityOrHearth: settlement.prosperityOrHearth,
-          $positionX: settlement.positionX,
-          $positionY: settlement.positionY,
-          $sceneName: settlement.sceneName,
-          $locationCount: settlement.locationCount,
-          $buildingCount: settlement.buildingCount,
-        })
-      }
-    }
-  })
-
-  const batch: XmlDocumentRow[] = []
-
-  for await (const relativePath of glob.scan({ cwd: defsPath })) {
-    const normalizedPath = relativePath.replaceAll('\\', '/')
-    const dedupeKey = normalizedPath.toLowerCase()
-    if (seenFilePaths.has(dedupeKey)) {
-      duplicateFilesSkipped += 1
-      continue
-    }
-    seenFilePaths.add(dedupeKey)
-
-    const moduleName = inferModuleName(normalizedPath)
-    const xmlText = await readXmlTextFile(join(defsPath, relativePath))
-
-    const entities: XmlEntityRow[] = []
-    const localizations: LocalizationRow[] = []
-    const itemProjections: BannerlordItemProjectionRow[] = []
-    const troopProjections: BannerlordTroopProjectionRow[] = []
-    const heroProjections: BannerlordHeroProjectionRow[] = []
-    const cultureProjections: BannerlordCultureProjectionRow[] = []
-    const skillProjections: BannerlordSkillProjectionRow[] = []
-    const clanProjections: BannerlordClanProjectionRow[] = []
-    const kingdomProjections: BannerlordKingdomProjectionRow[] = []
-    const settlementProjections: BannerlordSettlementProjectionRow[] = []
-
-    try {
-      const xmlObj = parser.parse(xmlText)
-      collectXmlEntities(xmlObj, normalizedPath, entities)
-      collectLocalizations(xmlObj, normalizedPath, localizations)
-      collectItemProjections(xmlObj, normalizedPath, itemProjections)
-      collectTroopProjections(xmlObj, normalizedPath, troopProjections)
-      collectHeroProjections(xmlObj, normalizedPath, heroProjections)
-      collectCultureProjections(xmlObj, normalizedPath, cultureProjections)
-      collectSkillProjections(xmlObj, normalizedPath, skillProjections)
-      collectClanProjections(xmlObj, normalizedPath, clanProjections)
-      collectKingdomProjections(xmlObj, normalizedPath, kingdomProjections)
-      collectSettlementProjections(xmlObj, normalizedPath, settlementProjections)
-    } catch (error) {
-      const failure = buildParseFailure(normalizedPath, moduleName, error)
-      parseFailures.push(failure)
+      purgeStale(stalePaths)
     }
 
-    batch.push({
-      moduleName,
-      filePath: normalizedPath,
-      content: xmlText,
-      entities,
-      localizations,
-      itemProjections,
-      troopProjections,
-      heroProjections,
-      cultureProjections,
-      skillProjections,
-      clanProjections,
-      kingdomProjections,
-      settlementProjections,
+    const scanTotals = { entities: 0, localizations: 0 }
+    const ingestBatch = db.transaction((rows: XmlDocumentRow[]) => {
+      const touchedPaths = [...new Set(rows.map(row => row.filePath))]
+      for (const filePath of touchedPaths) {
+        wipeFile(filePath)
+      }
+
+      const snapshotsByPath = new Map(changedFiles.map(file => [file.relativePath, file]))
+      const indexedAt = new Date().toISOString()
+
+      for (const row of rows) {
+        applyXmlRow(row, statements)
+
+        const snapshot = snapshotsByPath.get(row.filePath)
+        if (snapshot) {
+          statements.upsertTrackedFile.run({
+            $filePath: snapshot.relativePath,
+            $fileSize: snapshot.size,
+            $fileMtimeMs: snapshot.mtimeMs,
+            $indexedAt,
+          })
+        }
+      }
     })
 
-    fileCount += 1
-    entityCount += entities.length
-    localizationCount += localizations.length
+    const batch: XmlDocumentRow[] = []
+    for (const file of changedFiles) {
+      const row = await buildXmlDocumentRow(file)
+      batch.push(row)
+      scanTotals.entities += row.entities.length
+      scanTotals.localizations += row.localizations.length
 
-    if (batch.length >= XML_INSERT_BATCH_SIZE) {
-      flushBatch(transaction, batch)
+      if (batch.length >= XML_INSERT_BATCH_SIZE) {
+        ingestBatch(batch)
+        batch.length = 0
+      }
     }
+    if (batch.length > 0) {
+      ingestBatch(batch)
+      batch.length = 0
+    }
+
+    const failures = loadAllXmlParseFailures(db)
+    const entityCount = countRows(db, 'xml_entities')
+    const localizationCount = countRows(db, 'localization_entries')
+
+    await writeXmlParseReports(resolvedGameId, reportsPath, xmlParseReportPath, xmlParseReportMarkdownPath, sourceFiles.length, failures)
+
+    if (changedFiles.length === 0 && stalePaths.length === 0) {
+      console.log('No XML changes detected. Skipping rebuild.')
+    } else {
+      console.log(`Indexed ${changedFiles.length} changed XML files and removed ${stalePaths.length} stale files.`)
+      console.log(
+        `This run scanned ${scanTotals.entities} entity nodes and ${scanTotals.localizations} XML localization entries from changed files.`
+      )
+    }
+    printIndexSummary(sourceFiles.length, entityCount, localizationCount, duplicateFilesSkipped, failures, xmlParseReportPath, xmlParseReportMarkdownPath)
+
+    return {
+      filesIndexed: sourceFiles.length,
+      entitiesIndexed: entityCount,
+      localizationsIndexed: localizationCount,
+      parseFailures: failures.length,
+      duplicateFilesSkipped,
+    }
+  } finally {
+    db.close()
   }
+}
 
-  flushBatch(transaction, batch)
-  db.close()
-  await mkdir(reportsPath, { recursive: true })
-  await writeFile(
-    xmlParseReportPath,
-    JSON.stringify(
-      {
-        gameId: resolvedGameId,
-        generatedAt: new Date().toISOString(),
-        filesIndexed: fileCount,
-        parseFailureCount: parseFailures.length,
-        failures: parseFailures,
-      },
-      null,
-      2
-    ),
-    'utf8'
-  )
-  await writeFile(
-    xmlParseReportMarkdownPath,
-    renderParseReportMarkdown(resolvedGameId, fileCount, parseFailures),
-    'utf8'
-  )
+const XML_PROJECTION_TABLES = [
+  'xml_entities',
+  'localization_entries',
+  'bannerlord_items',
+  'bannerlord_troops',
+  'bannerlord_heroes',
+  'bannerlord_cultures',
+  'bannerlord_skills',
+  'bannerlord_clans',
+  'bannerlord_kingdoms',
+  'bannerlord_settlements',
+] as const
 
-  console.log(`Indexed ${fileCount} XML files, ${entityCount} entity nodes, and ${localizationCount} XML localization entries.`)
+function deleteFtsByPath(db: Database, filePath: string): void {
+  db.prepare(`DELETE FROM xml_documents_fts WHERE filePath = $filePath`).run({ $filePath: filePath })
+}
+
+/** Shared tail of both index runs: totals, dedupe note, parse-failure digest. */
+function printIndexSummary(
+  filesIndexed: number,
+  entityCount: number,
+  localizationCount: number,
+  duplicateFilesSkipped: number,
+  failures: XmlParseFailure[],
+  xmlParseReportPath: string,
+  xmlParseReportMarkdownPath: string
+): void {
+  console.log(
+    `Active XML state: ${filesIndexed} files, ${entityCount} entity nodes, and ${localizationCount} XML localization entries.`
+  )
   if (duplicateFilesSkipped > 0) {
     console.log(`Duplicate XML paths skipped during indexing: ${duplicateFilesSkipped}`)
   }
-  console.log(`XML parse failures recorded: ${parseFailures.length}`)
+  console.log(`XML parse failures recorded: ${failures.length}`)
   console.log(`XML parse report: ${xmlParseReportPath}`)
-  if (parseFailures.length > 0) {
-    console.warn(`XML parse summary: ${parseFailures.length} files could not be parsed cleanly.`)
-    for (const failure of parseFailures.slice(0, 10)) {
+  if (failures.length > 0) {
+    console.warn(`XML parse summary: ${failures.length} files could not be parsed cleanly.`)
+    for (const failure of failures.slice(0, PARSE_FAILURE_PREVIEW_COUNT)) {
       console.warn(`- ${failure.filePath} [${failure.category}] ${failure.message}`)
     }
-    if (parseFailures.length > 10) {
-      console.warn(`- ... ${parseFailures.length - 10} more. See ${xmlParseReportMarkdownPath}`)
+    if (failures.length > PARSE_FAILURE_PREVIEW_COUNT) {
+      console.warn(`- ... ${failures.length - PARSE_FAILURE_PREVIEW_COUNT} more. See ${xmlParseReportMarkdownPath}`)
     }
   }
-
-  return {
-    filesIndexed: fileCount,
-    entitiesIndexed: entityCount,
-    localizationsIndexed: localizationCount,
-    parseFailures: parseFailures.length,
-    duplicateFilesSkipped,
-  }
 }
 
-function flushBatch(
-  transaction: (rows: XmlDocumentRow[]) => void,
-  batch: XmlDocumentRow[]
-): void {
-  if (batch.length === 0) return
-  transaction(batch)
-  batch.length = 0
-}
+// ── XML tree walkers ────────────────────────────────────────────────────────
+// Each walker recurses the parsed object graph and projects the nodes whose
+// tag matches its domain. fast-xml-parser keeps attributes as `@_key` keys
+// and repeats elements as arrays, so every walker handles both shapes.
 
-function collectXmlEntities(
-  node: unknown,
-  filePath: string,
-  target: XmlEntityRow[],
-  currentTag = 'root'
-): void {
+function forEachNode(node: unknown, visit: (record: Record<string, unknown>, tag: string) => void, tag = 'root'): void {
   if (!node || typeof node !== 'object') return
 
   if (Array.isArray(node)) {
     for (const child of node) {
-      collectXmlEntities(child, filePath, target, currentTag)
+      forEachNode(child, visit, tag)
     }
     return
   }
 
   const record = node as Record<string, unknown>
-  const entityId = typeof record['@_id'] === 'string' ? record['@_id'] : null
-  if (entityId) {
-    target.push({
-      entityType: currentTag,
-      entityId,
-      name: getBestEntityName(record),
-      filePath,
-    })
-  }
+  visit(record, tag)
 
   for (const [key, value] of Object.entries(record)) {
     if (key.startsWith('@_')) continue
-    collectXmlEntities(value, filePath, target, key)
+    forEachNode(value, visit, key)
   }
 }
 
+function collectXmlEntities(node: unknown, filePath: string, target: XmlEntityRow[], currentTag = 'root'): void {
+  forEachNode(node, (record, tag) => {
+    const entityId = typeof record['@_id'] === 'string' ? record['@_id'] : null
+    if (entityId) {
+      target.push({
+        entityType: tag,
+        entityId,
+        name: getBestEntityName(record),
+        filePath,
+      })
+    }
+  }, currentTag)
+}
+
+/** First present attribute among the usual display-attribute suspects. */
 function getBestEntityName(record: Record<string, unknown>): string | null {
   for (const key of ['@_name', '@_text', '@_value', '@_culture']) {
     if (typeof record[key] === 'string') {
@@ -930,12 +455,7 @@ function collectLocalizations(
     null
 
   if (stringId && text && /\/Languages\//i.test(filePath)) {
-    target.push({
-      language,
-      stringId,
-      text,
-      filePath,
-    })
+    target.push({ language, stringId, text, filePath })
   }
 
   for (const value of Object.values(record)) {
@@ -943,231 +463,109 @@ function collectLocalizations(
   }
 }
 
-function collectItemProjections(
+function collectByTag(
   node: unknown,
-  filePath: string,
-  target: BannerlordItemProjectionRow[]
+  tagNames: string[],
+  push: (record: Record<string, any>, filePath: string) => void,
+  filePath: string
 ): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectItemProjections(child, filePath, target)
+  forEachNode(node, (record, tag) => {
+    if (!tagNames.includes(tag)) return
+    for (const candidate of toObjectArray(record)) {
+      push(candidate, filePath)
     }
-    return
-  }
+  })
+  void filePath
+}
 
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Item') {
-      for (const candidate of toObjectArray(value)) {
+function collectItemProjections(node: unknown, filePath: string, target: BannerlordItemProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag === 'Item') {
+      for (const candidate of toObjectArray(record)) {
         pushItemProjection(candidate, filePath, target)
       }
-    } else if (key === 'CraftingPiece') {
-      for (const candidate of toObjectArray(value)) {
+    } else if (tag === 'CraftingPiece') {
+      for (const candidate of toObjectArray(record)) {
         pushCraftingPieceProjection(candidate, filePath, target)
       }
     }
-
-    collectItemProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectTroopProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordTroopProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectTroopProjections(child, filePath, target)
+function collectTroopProjections(node: unknown, filePath: string, target: BannerlordTroopProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'NPCCharacter') return
+    for (const candidate of toObjectArray(record)) {
+      pushTroopProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'NPCCharacter') {
-      for (const candidate of toObjectArray(value)) {
-        pushTroopProjection(candidate, filePath, target)
-      }
-    }
-
-    collectTroopProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectHeroProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordHeroProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectHeroProjections(child, filePath, target)
+function collectHeroProjections(node: unknown, filePath: string, target: BannerlordHeroProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'Hero') return
+    for (const candidate of toObjectArray(record)) {
+      pushHeroProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Hero') {
-      for (const candidate of toObjectArray(value)) {
-        pushHeroProjection(candidate, filePath, target)
-      }
-    }
-
-    collectHeroProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectCultureProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordCultureProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectCultureProjections(child, filePath, target)
+function collectCultureProjections(node: unknown, filePath: string, target: BannerlordCultureProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'Culture') return
+    for (const candidate of toObjectArray(record)) {
+      pushCultureProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Culture') {
-      for (const candidate of toObjectArray(value)) {
-        pushCultureProjection(candidate, filePath, target)
-      }
-    }
-
-    collectCultureProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectSkillProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordSkillProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectSkillProjections(child, filePath, target)
+function collectSkillProjections(node: unknown, filePath: string, target: BannerlordSkillProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'SkillData') return
+    for (const candidate of toObjectArray(record)) {
+      pushSkillProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'SkillData') {
-      for (const candidate of toObjectArray(value)) {
-        pushSkillProjection(candidate, filePath, target)
-      }
-    }
-
-    collectSkillProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectClanProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordClanProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectClanProjections(child, filePath, target)
+function collectClanProjections(node: unknown, filePath: string, target: BannerlordClanProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'Faction') return
+    for (const candidate of toObjectArray(record)) {
+      pushClanProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Faction') {
-      for (const candidate of toObjectArray(value)) {
-        pushClanProjection(candidate, filePath, target)
-      }
-    }
-
-    collectClanProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectKingdomProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordKingdomProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectKingdomProjections(child, filePath, target)
+function collectKingdomProjections(node: unknown, filePath: string, target: BannerlordKingdomProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'Kingdom') return
+    for (const candidate of toObjectArray(record)) {
+      pushKingdomProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Kingdom') {
-      for (const candidate of toObjectArray(value)) {
-        pushKingdomProjection(candidate, filePath, target)
-      }
-    }
-
-    collectKingdomProjections(value, filePath, target)
-  }
+  })
 }
 
-function collectSettlementProjections(
-  node: unknown,
-  filePath: string,
-  target: BannerlordSettlementProjectionRow[]
-): void {
-  if (!node || typeof node !== 'object') return
-
-  if (Array.isArray(node)) {
-    for (const child of node) {
-      collectSettlementProjections(child, filePath, target)
+function collectSettlementProjections(node: unknown, filePath: string, target: BannerlordSettlementProjectionRow[]): void {
+  forEachNode(node, (record, tag) => {
+    if (tag !== 'Settlement') return
+    for (const candidate of toObjectArray(record)) {
+      pushSettlementProjection(candidate, filePath, target)
     }
-    return
-  }
-
-  const record = node as Record<string, unknown>
-  for (const [key, value] of Object.entries(record)) {
-    if (key === 'Settlement') {
-      for (const candidate of toObjectArray(value)) {
-        pushSettlementProjection(candidate, filePath, target)
-      }
-    }
-
-    collectSettlementProjections(value, filePath, target)
-  }
+  })
 }
 
-function pushItemProjection(
-  item: Record<string, any>,
-  filePath: string,
-  target: BannerlordItemProjectionRow[]
-): void {
+// ── Row builders ─────────────────────────────────────────────────────────────
+
+function pushItemProjection(item: Record<string, any>, filePath: string, target: BannerlordItemProjectionRow[]): void {
   if (typeof item['@_id'] !== 'string') {
     return
   }
 
   const component = (item.ItemComponent ?? {}) as Record<string, any>
-  const weapon = component.Weapon ? (Array.isArray(component.Weapon) ? component.Weapon[0] : component.Weapon) : null
-  const armor = component.Armor ? (Array.isArray(component.Armor) ? component.Armor[0] : component.Armor) : null
-  const horse = component.Horse ? (Array.isArray(component.Horse) ? component.Horse[0] : component.Horse) : null
+  const weapon = firstOf(component.Weapon)
+  const armor = firstOf(component.Armor)
+  const horse = firstOf(component.Horse)
 
   target.push({
     entityId: item['@_id'],
@@ -1198,11 +596,7 @@ function pushItemProjection(
   })
 }
 
-function pushCraftingPieceProjection(
-  piece: Record<string, any>,
-  filePath: string,
-  target: BannerlordItemProjectionRow[]
-): void {
+function pushCraftingPieceProjection(piece: Record<string, any>, filePath: string, target: BannerlordItemProjectionRow[]): void {
   if (typeof piece['@_id'] !== 'string') {
     return
   }
@@ -1239,19 +633,15 @@ function pushCraftingPieceProjection(
   })
 }
 
-function pushTroopProjection(
-  npcRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordTroopProjectionRow[]
-): void {
+function pushTroopProjection(npcRecord: Record<string, any>, filePath: string, target: BannerlordTroopProjectionRow[]): void {
   if (typeof npcRecord['@_id'] !== 'string') {
     return
   }
 
   const rawTargets = npcRecord.upgrade_targets?.upgrade_target
-  const upgradeTargets = (Array.isArray(rawTargets) ? rawTargets : rawTargets ? [rawTargets] : [])
-    .map((item: any) => item?.['@_id'])
-    .filter((value: unknown): value is string => typeof value === 'string' && value.length > 0)
+  const upgradeTargets = toObjectArray(rawTargets)
+    .map(item => item?.['@_id'])
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
 
   target.push({
     characterId: npcRecord['@_id'],
@@ -1267,11 +657,7 @@ function pushTroopProjection(
   })
 }
 
-function pushHeroProjection(
-  heroRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordHeroProjectionRow[]
-): void {
+function pushHeroProjection(heroRecord: Record<string, any>, filePath: string, target: BannerlordHeroProjectionRow[]): void {
   if (typeof heroRecord['@_id'] !== 'string') {
     return
   }
@@ -1290,17 +676,11 @@ function pushHeroProjection(
   })
 }
 
-function pushCultureProjection(
-  cultureRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordCultureProjectionRow[]
-): void {
+function pushCultureProjection(cultureRecord: Record<string, any>, filePath: string, target: BannerlordCultureProjectionRow[]): void {
   if (typeof cultureRecord['@_id'] !== 'string') {
     return
   }
 
-  const maleNames = toObjectArray(cultureRecord.male_names?.name)
-  const femaleNames = toObjectArray(cultureRecord.female_names?.name)
   const defaultPolicies = toObjectArray(cultureRecord.default_policies?.policy)
     .map(policy => normalizeBannerlordPolicyId(toOptionalText(policy['@_id'])))
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -1317,18 +697,14 @@ function pushCultureProjection(
     eliteBasicTroop: toOptionalText(cultureRecord['@_elite_basic_troop']),
     canHaveSettlement: toOptionalText(cultureRecord['@_can_have_settlement']),
     boardGameType: toOptionalText(cultureRecord['@_board_game_type']),
-    maleNameCount: maleNames.length,
-    femaleNameCount: femaleNames.length,
+    maleNameCount: toObjectArray(cultureRecord.male_names?.name).length,
+    femaleNameCount: toObjectArray(cultureRecord.female_names?.name).length,
     defaultPolicyIdsJson: JSON.stringify(defaultPolicies),
     defaultPolicyCount: defaultPolicies.length,
   })
 }
 
-function pushSkillProjection(
-  skillRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordSkillProjectionRow[]
-): void {
+function pushSkillProjection(skillRecord: Record<string, any>, filePath: string, target: BannerlordSkillProjectionRow[]): void {
   if (typeof skillRecord['@_id'] !== 'string') {
     return
   }
@@ -1351,16 +727,10 @@ function pushSkillProjection(
   })
 }
 
-function pushClanProjection(
-  clanRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordClanProjectionRow[]
-): void {
+function pushClanProjection(clanRecord: Record<string, any>, filePath: string, target: BannerlordClanProjectionRow[]): void {
   if (typeof clanRecord['@_id'] !== 'string') {
     return
   }
-
-  const templates = toObjectArray(clanRecord.minor_faction_character_templates?.template)
 
   target.push({
     clanId: clanRecord['@_id'],
@@ -1381,20 +751,15 @@ function pushClanProjection(
     isMercenary: toBooleanNumber(clanRecord['@_is_clan_type_mercenary'] ?? clanRecord['@_is_mercenary']),
     color: toOptionalText(clanRecord['@_color']),
     color2: toOptionalText(clanRecord['@_color2']),
-    templateCount: templates.length,
+    templateCount: toObjectArray(clanRecord.minor_faction_character_templates?.template).length,
   })
 }
 
-function pushKingdomProjection(
-  kingdomRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordKingdomProjectionRow[]
-): void {
+function pushKingdomProjection(kingdomRecord: Record<string, any>, filePath: string, target: BannerlordKingdomProjectionRow[]): void {
   if (typeof kingdomRecord['@_id'] !== 'string') {
     return
   }
 
-  const relationships = toObjectArray(kingdomRecord.relationships?.relationship)
   const policies = toObjectArray(kingdomRecord.policies?.policy)
     .map(policy => normalizeBannerlordPolicyId(toOptionalText(policy['@_id'])))
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -1414,22 +779,18 @@ function pushKingdomProjection(
     color2: toOptionalText(kingdomRecord['@_color2']),
     primaryBannerColor: toOptionalText(kingdomRecord['@_primary_banner_color']),
     secondaryBannerColor: toOptionalText(kingdomRecord['@_secondary_banner_color']),
-    relationshipCount: relationships.length,
+    relationshipCount: toObjectArray(kingdomRecord.relationships?.relationship).length,
     policyCount: policies.length,
     policyIdsJson: JSON.stringify(policies),
   })
 }
 
-function pushSettlementProjection(
-  settlementRecord: Record<string, any>,
-  filePath: string,
-  target: BannerlordSettlementProjectionRow[]
-): void {
+function pushSettlementProjection(settlementRecord: Record<string, any>, filePath: string, target: BannerlordSettlementProjectionRow[]): void {
   if (typeof settlementRecord['@_id'] !== 'string') {
     return
   }
 
-  const componentInfo = inspectSettlementComponents(settlementRecord.Components)
+  const component = inspectSettlementComponents(settlementRecord.Components)
   const locations = toObjectArray(settlementRecord.Locations?.Location)
 
   target.push({
@@ -1439,19 +800,22 @@ function pushSettlementProjection(
     descriptionText: toOptionalText(settlementRecord['@_text']),
     owner: toOptionalText(settlementRecord['@_owner']),
     culture: toOptionalText(settlementRecord['@_culture']),
-    settlementType: componentInfo.settlementType ?? toOptionalText(settlementRecord['@_type']),
-    componentId: componentInfo.componentId,
-    boundSettlement: componentInfo.boundSettlement,
-    villageType: componentInfo.villageType,
-    prosperityOrHearth: componentInfo.prosperityOrHearth,
+    settlementType: component.settlementType ?? toOptionalText(settlementRecord['@_type']),
+    componentId: component.componentId,
+    boundSettlement: component.boundSettlement,
+    villageType: component.villageType,
+    prosperityOrHearth: component.prosperityOrHearth,
     positionX: toOptionalText(settlementRecord['@_posX']),
     positionY: toOptionalText(settlementRecord['@_posY']),
     sceneName: pickSceneName(locations),
     locationCount: locations.length,
-    buildingCount: componentInfo.buildingCount,
+    buildingCount: component.buildingCount,
   })
 }
 
+// ── Value helpers ─────────────────────────────────────────────────────────────
+
+/** Wraps a maybe-array XML value into an array of object records. */
 function toObjectArray(value: unknown): Record<string, any>[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is Record<string, any> => Boolean(item) && typeof item === 'object')
@@ -1462,6 +826,14 @@ function toObjectArray(value: unknown): Record<string, any>[] {
   }
 
   return []
+}
+
+/** First element when the value is an array, the value itself otherwise. */
+function firstOf<T>(value: T | T[] | undefined | null): T | null {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value[0] : null
+  }
+  return value ?? null
 }
 
 function inferLanguageFromPath(filePath: string): string {
@@ -1483,12 +855,13 @@ function inferModuleName(filePath: string): string {
   return parts[0] || 'unknown'
 }
 
-function dedupeXmlEntities(rows: XmlEntityRow[]): XmlEntityRow[] {
+/** Keys each dedupe helper uses; first occurrence wins. */
+function dedupeBy<T>(rows: T[], keyOf: (row: T) => string): T[] {
   const seen = new Set<string>()
-  const result: XmlEntityRow[] = []
+  const result: T[] = []
 
   for (const row of rows) {
-    const key = `${row.entityType}@@${row.entityId}@@${row.filePath}`
+    const key = keyOf(row)
     if (seen.has(key)) continue
     seen.add(key)
     result.push(row)
@@ -1497,131 +870,16 @@ function dedupeXmlEntities(rows: XmlEntityRow[]): XmlEntityRow[] {
   return result
 }
 
-function dedupeLocalizations(rows: LocalizationRow[]): LocalizationRow[] {
-  const seen = new Set<string>()
-  const result: LocalizationRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.language}@@${row.stringId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeItemProjections(rows: BannerlordItemProjectionRow[]): BannerlordItemProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordItemProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.entityId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeTroopProjections(rows: BannerlordTroopProjectionRow[]): BannerlordTroopProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordTroopProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.characterId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeHeroProjections(rows: BannerlordHeroProjectionRow[]): BannerlordHeroProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordHeroProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.heroId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeCultureProjections(rows: BannerlordCultureProjectionRow[]): BannerlordCultureProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordCultureProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.cultureId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeSkillProjections(rows: BannerlordSkillProjectionRow[]): BannerlordSkillProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordSkillProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.skillId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeClanProjections(rows: BannerlordClanProjectionRow[]): BannerlordClanProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordClanProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.clanId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeKingdomProjections(rows: BannerlordKingdomProjectionRow[]): BannerlordKingdomProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordKingdomProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.kingdomId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
-
-function dedupeSettlementProjections(rows: BannerlordSettlementProjectionRow[]): BannerlordSettlementProjectionRow[] {
-  const seen = new Set<string>()
-  const result: BannerlordSettlementProjectionRow[] = []
-
-  for (const row of rows) {
-    const key = `${row.settlementId}@@${row.filePath}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(row)
-  }
-
-  return result
-}
+const dedupeXmlEntities = (rows: XmlEntityRow[]) => dedupeBy(rows, row => `${row.entityType}@@${row.entityId}@@${row.filePath}`)
+const dedupeLocalizations = (rows: LocalizationRow[]) => dedupeBy(rows, row => `${row.language}@@${row.stringId}@@${row.filePath}`)
+const dedupeItemProjections = (rows: BannerlordItemProjectionRow[]) => dedupeBy(rows, row => `${row.entityId}@@${row.filePath}`)
+const dedupeTroopProjections = (rows: BannerlordTroopProjectionRow[]) => dedupeBy(rows, row => `${row.characterId}@@${row.filePath}`)
+const dedupeHeroProjections = (rows: BannerlordHeroProjectionRow[]) => dedupeBy(rows, row => `${row.heroId}@@${row.filePath}`)
+const dedupeCultureProjections = (rows: BannerlordCultureProjectionRow[]) => dedupeBy(rows, row => `${row.cultureId}@@${row.filePath}`)
+const dedupeSkillProjections = (rows: BannerlordSkillProjectionRow[]) => dedupeBy(rows, row => `${row.skillId}@@${row.filePath}`)
+const dedupeClanProjections = (rows: BannerlordClanProjectionRow[]) => dedupeBy(rows, row => `${row.clanId}@@${row.filePath}`)
+const dedupeKingdomProjections = (rows: BannerlordKingdomProjectionRow[]) => dedupeBy(rows, row => `${row.kingdomId}@@${row.filePath}`)
+const dedupeSettlementProjections = (rows: BannerlordSettlementProjectionRow[]) => dedupeBy(rows, row => `${row.settlementId}@@${row.filePath}`)
 
 function toOptionalText(value: unknown): string | null {
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -1635,6 +893,7 @@ function toOptionalText(value: unknown): string | null {
   return null
 }
 
+/** Booleans arrive as native booleans, `"true"/"1"` strings, or numbers. */
 function toBooleanNumber(value: unknown): number {
   if (typeof value === 'boolean') {
     return value ? 1 : 0
@@ -1652,15 +911,19 @@ function toBooleanNumber(value: unknown): number {
   return 0
 }
 
-function inspectSettlementComponents(value: unknown): {
+type SettlementComponentInfo = {
   settlementType: string | null
   componentId: string | null
   boundSettlement: string | null
   villageType: string | null
   prosperityOrHearth: string | null
   buildingCount: number
-} {
+}
+
+/** Classifies a settlement by its first present component element. */
+function inspectSettlementComponents(value: unknown): SettlementComponentInfo {
   const components = value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+
   const village = components ? toObjectArray(components.Village)[0] : null
   if (village) {
     return {
@@ -1675,14 +938,13 @@ function inspectSettlementComponents(value: unknown): {
 
   const town = components ? toObjectArray(components.Town)[0] : null
   if (town) {
-    const buildings = toObjectArray(town.Buildings?.Building)
     return {
       settlementType: toBooleanNumber(town['@_is_castle']) ? 'castle' : 'town',
       componentId: toOptionalText(town['@_id']),
       boundSettlement: null,
       villageType: null,
       prosperityOrHearth: toOptionalText(town['@_prosperity']),
-      buildingCount: buildings.length,
+      buildingCount: toObjectArray(town.Buildings?.Building).length,
     }
   }
 
@@ -1751,32 +1013,16 @@ function extractSkillDocumentation(value: unknown): string | null {
   return null
 }
 
-function buildParseFailure(filePath: string, moduleName: string, error: unknown): XmlParseFailure {
-  const normalizedMessage = normalizeErrorMessage(error)
+// ── Parse failures & reports ─────────────────────────────────────────────────
 
+function buildParseFailure(filePath: string, moduleName: string, error: unknown): XmlParseFailure {
   return {
     filePath,
     moduleName,
     category: inferXmlCategory(filePath),
-    errorName: getErrorName(error),
-    message: normalizedMessage,
+    errorName: error instanceof Error && error.name ? error.name : 'Error',
+    message: error instanceof Error ? error.message.trim() : String(error).trim(),
   }
-}
-
-function normalizeErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message.trim()
-  }
-
-  return String(error).trim()
-}
-
-function getErrorName(error: unknown): string {
-  if (error instanceof Error && error.name) {
-    return error.name
-  }
-
-  return 'Error'
 }
 
 function inferXmlCategory(filePath: string): string {
@@ -1788,11 +1034,7 @@ function inferXmlCategory(filePath: string): string {
   return 'other'
 }
 
-function renderParseReportMarkdown(
-  gameId: string,
-  filesIndexed: number,
-  failures: XmlParseFailure[]
-): string {
+function renderParseReportMarkdown(gameId: string, filesIndexed: number, failures: XmlParseFailure[]): string {
   const lines = [
     '# XML Parse Report',
     '',
@@ -1821,210 +1063,120 @@ function renderParseReportMarkdown(
   return lines.join('\n')
 }
 
-async function buildXmlIndexIncremental(gameId?: string): Promise<{
-  filesIndexed: number
-  entitiesIndexed: number
-  localizationsIndexed: number
-  parseFailures: number
-  duplicateFilesSkipped: number
-}> {
-  const {
-    defsPath,
-    dbPath,
-    reportsPath,
+async function writeXmlParseReports(
+  gameId: string,
+  reportsPath: string,
+  xmlParseReportPath: string,
+  xmlParseReportMarkdownPath: string,
+  filesIndexed: number,
+  failures: XmlParseFailure[]
+): Promise<void> {
+  await mkdir(reportsPath, { recursive: true })
+  await writeFile(
     xmlParseReportPath,
-    xmlParseReportMarkdownPath,
-    gameId: resolvedGameId,
-  } = getGamePaths(gameId)
-  console.log(`Building XML index from ${defsPath}`)
-
-  const db = new Database(dbPath)
-
-  try {
-    db.run('PRAGMA busy_timeout = 5000;')
-    db.run('PRAGMA journal_mode = WAL;')
-
-    if (!hasXmlIncrementalSchema(db)) {
-      resetXmlSchema(db)
-    } else {
-      ensureXmlSchema(db)
-    }
-
-    const { files: sourceFiles, duplicateFilesSkipped } = await collectXmlSourceFiles(defsPath)
-    const indexedFiles = loadIndexedXmlFiles(db)
-    const newOrChangedFiles = sourceFiles.filter(file => {
-      const previous = indexedFiles.get(file.relativePath)
-      return !previous || previous.fileSize !== file.size || previous.fileMtimeMs !== file.mtimeMs
-    })
-    const currentFileSet = new Set(sourceFiles.map(file => file.relativePath))
-    const removedFiles = [...indexedFiles.keys()].filter(filePath => !currentFileSet.has(filePath))
-
-    if (newOrChangedFiles.length === 0 && removedFiles.length === 0) {
-      const currentFailures = loadAllXmlParseFailures(db)
-      const currentEntityCount = countRows(db, 'xml_entities')
-      const currentLocalizationCount = countRows(db, 'localization_entries')
-      await writeXmlParseReports(
-        resolvedGameId,
-        reportsPath,
-        xmlParseReportPath,
-        xmlParseReportMarkdownPath,
-        sourceFiles.length,
-        currentFailures
-      )
-      console.log('No XML changes detected. Skipping rebuild.')
-      return {
-        filesIndexed: sourceFiles.length,
-        entitiesIndexed: currentEntityCount,
-        localizationsIndexed: currentLocalizationCount,
-        parseFailures: currentFailures.length,
-        duplicateFilesSkipped,
-      }
-    }
-
-    const deleteByFileStatements = prepareDeleteByFileStatements(db, [
-      'xml_entities',
-      'localization_entries',
-      'bannerlord_items',
-      'bannerlord_troops',
-      'bannerlord_heroes',
-      'bannerlord_cultures',
-      'bannerlord_skills',
-      'bannerlord_clans',
-      'bannerlord_kingdoms',
-      'bannerlord_settlements',
-    ])
-    const deleteFtsByPath = db.prepare(`DELETE FROM xml_documents_fts WHERE filePath = $filePath`)
-    const deleteParseFailuresByFile = db.prepare(`DELETE FROM xml_parse_failures WHERE filePath = $filePath`)
-    const deleteTrackedFile = db.prepare(`DELETE FROM xml_files WHERE filePath = $filePath`)
-    const upsertTrackedFile = db.prepare(`
-      INSERT OR REPLACE INTO xml_files (filePath, fileSize, fileMtimeMs, indexedAt)
-      VALUES ($filePath, $fileSize, $fileMtimeMs, $indexedAt)
-    `)
-    const insertStatements = prepareXmlInsertStatements(db)
-
-    const deleteRemovedFiles = db.transaction((filePaths: string[]) => {
-      for (const filePath of filePaths) {
-        deleteFtsByPath.run({ $filePath: filePath })
-        for (const statement of deleteByFileStatements) {
-          statement.run({ $filePath: filePath })
-        }
-        deleteParseFailuresByFile.run({ $filePath: filePath })
-        deleteTrackedFile.run({ $filePath: filePath })
-      }
-    })
-
-    const transaction = db.transaction((rows: XmlDocumentRow[]) => {
-      const batchFilePaths = [...new Set(rows.map(row => row.filePath))]
-      for (const filePath of batchFilePaths) {
-        deleteFtsByPath.run({ $filePath: filePath })
-        for (const statement of deleteByFileStatements) {
-          statement.run({ $filePath: filePath })
-        }
-        deleteParseFailuresByFile.run({ $filePath: filePath })
-      }
-
-      const indexedAt = new Date().toISOString()
-      const fileSnapshotsByPath = new Map(newOrChangedFiles.map(file => [file.relativePath, file]))
-
-      for (const row of rows) {
-        applyIndexedXmlRow(row, insertStatements)
-
-        const snapshot = fileSnapshotsByPath.get(row.filePath)
-        if (snapshot) {
-          upsertTrackedFile.run({
-            $filePath: snapshot.relativePath,
-            $fileSize: snapshot.size,
-            $fileMtimeMs: snapshot.mtimeMs,
-            $indexedAt: indexedAt,
-          })
-        }
-      }
-    })
-
-    const batch: XmlDocumentRow[] = []
-    let scannedEntityCount = 0
-    let scannedLocalizationCount = 0
-
-    if (removedFiles.length > 0) {
-      deleteRemovedFiles(removedFiles)
-    }
-
-    for (const file of newOrChangedFiles) {
-      const row = await buildXmlDocumentRow(file)
-      batch.push(row)
-      scannedEntityCount += row.entities.length
-      scannedLocalizationCount += row.localizations.length
-
-      if (batch.length >= XML_INSERT_BATCH_SIZE) {
-        flushBatch(transaction, batch)
-      }
-    }
-
-    flushBatch(transaction, batch)
-
-    const currentFailures = loadAllXmlParseFailures(db)
-    const currentEntityCount = countRows(db, 'xml_entities')
-    const currentLocalizationCount = countRows(db, 'localization_entries')
-
-    await writeXmlParseReports(
-      resolvedGameId,
-      reportsPath,
-      xmlParseReportPath,
-      xmlParseReportMarkdownPath,
-      sourceFiles.length,
-      currentFailures
-    )
-
-    console.log(`Indexed ${newOrChangedFiles.length} changed XML files and removed ${removedFiles.length} stale files.`)
-    console.log(
-      `Active XML state: ${sourceFiles.length} files, ${currentEntityCount} entity nodes, and ${currentLocalizationCount} XML localization entries.`
-    )
-    console.log(
-      `This run scanned ${scannedEntityCount} entity nodes and ${scannedLocalizationCount} XML localization entries from changed files.`
-    )
-    if (duplicateFilesSkipped > 0) {
-      console.log(`Duplicate XML paths skipped during indexing: ${duplicateFilesSkipped}`)
-    }
-    console.log(`XML parse failures recorded: ${currentFailures.length}`)
-    console.log(`XML parse report: ${xmlParseReportPath}`)
-    if (currentFailures.length > 0) {
-      console.warn(`XML parse summary: ${currentFailures.length} files could not be parsed cleanly.`)
-      for (const failure of currentFailures.slice(0, 10)) {
-        console.warn(`- ${failure.filePath} [${failure.category}] ${failure.message}`)
-      }
-      if (currentFailures.length > 10) {
-        console.warn(`- ... ${currentFailures.length - 10} more. See ${xmlParseReportMarkdownPath}`)
-      }
-    }
-
-    return {
-      filesIndexed: sourceFiles.length,
-      entitiesIndexed: currentEntityCount,
-      localizationsIndexed: currentLocalizationCount,
-      parseFailures: currentFailures.length,
-      duplicateFilesSkipped,
-    }
-  } finally {
-    db.close()
-  }
+    JSON.stringify(
+      {
+        gameId,
+        generatedAt: new Date().toISOString(),
+        filesIndexed,
+        parseFailureCount: failures.length,
+        failures,
+      },
+      null,
+      2
+    ),
+    'utf8'
+  )
+  await writeFile(xmlParseReportMarkdownPath, renderParseReportMarkdown(gameId, filesIndexed, failures), 'utf8')
 }
 
+// ── File discovery ───────────────────────────────────────────────────────────
+
+async function collectXmlSourceFiles(defsPath: string): Promise<{
+  files: XmlSourceFileSnapshot[]
+  duplicateFilesSkipped: number
+}> {
+  const glob = new Glob('**/*.xml')
+  const seenFilePaths = new Set<string>()
+  const files: XmlSourceFileSnapshot[] = []
+  let duplicateFilesSkipped = 0
+
+  for await (const relativePath of glob.scan({ cwd: defsPath })) {
+    const normalizedPath = relativePath.replaceAll('\\', '/')
+    const dedupeKey = normalizedPath.toLowerCase()
+    if (seenFilePaths.has(dedupeKey)) {
+      duplicateFilesSkipped += 1
+      continue
+    }
+
+    seenFilePaths.add(dedupeKey)
+    const fullPath = join(defsPath, relativePath)
+    const fileStats = await stat(fullPath)
+    files.push({
+      relativePath: normalizedPath,
+      absolutePath: fullPath,
+      size: fileStats.size,
+      mtimeMs: fileStats.mtimeMs,
+    })
+  }
+
+  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+  return { files, duplicateFilesSkipped }
+}
+
+/** Parses one changed file into every row shape the schema needs. */
+async function buildXmlDocumentRow(file: XmlSourceFileSnapshot): Promise<XmlDocumentRow> {
+  const moduleName = inferModuleName(file.relativePath)
+  const xmlText = await readXmlTextFile(file.absolutePath)
+
+  const row: XmlDocumentRow = {
+    moduleName,
+    filePath: file.relativePath,
+    content: xmlText,
+    parseFailure: null,
+    entities: [],
+    localizations: [],
+    itemProjections: [],
+    troopProjections: [],
+    heroProjections: [],
+    cultureProjections: [],
+    skillProjections: [],
+    clanProjections: [],
+    kingdomProjections: [],
+    settlementProjections: [],
+  }
+
+  try {
+    const xmlObj = parser.parse(xmlText)
+    collectXmlEntities(xmlObj, file.relativePath, row.entities)
+    collectLocalizations(xmlObj, file.relativePath, row.localizations)
+    collectItemProjections(xmlObj, file.relativePath, row.itemProjections)
+    collectTroopProjections(xmlObj, file.relativePath, row.troopProjections)
+    collectHeroProjections(xmlObj, file.relativePath, row.heroProjections)
+    collectCultureProjections(xmlObj, file.relativePath, row.cultureProjections)
+    collectSkillProjections(xmlObj, file.relativePath, row.skillProjections)
+    collectClanProjections(xmlObj, file.relativePath, row.clanProjections)
+    collectKingdomProjections(xmlObj, file.relativePath, row.kingdomProjections)
+    collectSettlementProjections(xmlObj, file.relativePath, row.settlementProjections)
+  } catch (error) {
+    row.parseFailure = buildParseFailure(file.relativePath, moduleName, error)
+  }
+
+  return row
+}
+
+// ── Schema & persistence ─────────────────────────────────────────────────────
+
 function hasXmlIncrementalSchema(db: Database): boolean {
+  const requiredTables = [
+    'xml_index_meta',
+    'xml_files',
+    'xml_parse_failures',
+    'xml_documents_fts',
+    ...XML_PROJECTION_TABLES,
+  ]
   return (
-    tableExists(db, 'xml_index_meta') &&
-    tableExists(db, 'xml_files') &&
-    tableExists(db, 'xml_parse_failures') &&
-    tableExists(db, 'xml_documents_fts') &&
-    tableExists(db, 'xml_entities') &&
-    tableExists(db, 'localization_entries') &&
-    tableExists(db, 'bannerlord_items') &&
-    tableExists(db, 'bannerlord_troops') &&
-    tableExists(db, 'bannerlord_heroes') &&
-    tableExists(db, 'bannerlord_cultures') &&
-    tableExists(db, 'bannerlord_skills') &&
-    tableExists(db, 'bannerlord_clans') &&
-    tableExists(db, 'bannerlord_kingdoms') &&
-    tableExists(db, 'bannerlord_settlements') &&
+    requiredTables.every(table => tableExists(db, table)) &&
     readXmlIndexSchemaVersion(db) === XML_INDEX_SCHEMA_VERSION &&
     !tableHasColumn(db, 'xml_entities', 'content')
   )
@@ -2274,20 +1426,9 @@ function ensureXmlSchema(db: Database): void {
 }
 
 function resetXmlSchema(db: Database): void {
-  db.run('DROP TABLE IF EXISTS xml_index_meta;')
-  db.run('DROP TABLE IF EXISTS xml_documents_fts;')
-  db.run('DROP TABLE IF EXISTS xml_entities;')
-  db.run('DROP TABLE IF EXISTS localization_entries;')
-  db.run('DROP TABLE IF EXISTS bannerlord_items;')
-  db.run('DROP TABLE IF EXISTS bannerlord_troops;')
-  db.run('DROP TABLE IF EXISTS bannerlord_heroes;')
-  db.run('DROP TABLE IF EXISTS bannerlord_cultures;')
-  db.run('DROP TABLE IF EXISTS bannerlord_skills;')
-  db.run('DROP TABLE IF EXISTS bannerlord_clans;')
-  db.run('DROP TABLE IF EXISTS bannerlord_kingdoms;')
-  db.run('DROP TABLE IF EXISTS bannerlord_settlements;')
-  db.run('DROP TABLE IF EXISTS xml_files;')
-  db.run('DROP TABLE IF EXISTS xml_parse_failures;')
+  for (const table of ['xml_index_meta', 'xml_documents_fts', 'xml_files', 'xml_parse_failures', ...XML_PROJECTION_TABLES]) {
+    db.run(`DROP TABLE IF EXISTS ${table};`)
+  }
   ensureXmlSchema(db)
 }
 
@@ -2316,9 +1457,7 @@ function tableHasColumn(db: Database, tableName: string, columnName: string): bo
 }
 
 function countRows(db: Database, tableName: string): number {
-  return Number(
-    db.query<{ count: number }, never>(`SELECT COUNT(*) AS count FROM ${tableName}`).get()?.count || 0
-  )
+  return Number(db.query<{ count: number }, never>(`SELECT COUNT(*) AS count FROM ${tableName}`).get()?.count || 0)
 }
 
 function readXmlIndexSchemaVersion(db: Database): string {
@@ -2338,12 +1477,6 @@ function readXmlIndexSchemaVersion(db: Database): string {
     .get()
 
   return row?.value ?? ''
-}
-
-function prepareDeleteByFileStatements(db: Database, tableNames: string[]) {
-  return tableNames.map(tableName =>
-    db.prepare(`DELETE FROM ${tableName} WHERE filePath = $filePath`)
-  )
 }
 
 function loadIndexedXmlFiles(db: Database): Map<string, IndexedXmlFileRow> {
@@ -2371,71 +1504,19 @@ function loadAllXmlParseFailures(db: Database): XmlParseFailure[] {
     .all()
 }
 
-async function collectXmlSourceFiles(defsPath: string): Promise<{
-  files: XmlSourceFileSnapshot[]
-  duplicateFilesSkipped: number
-}> {
-  const glob = new Glob('**/*.xml')
-  const seenFilePaths = new Set<string>()
-  const files: XmlSourceFileSnapshot[] = []
-  let duplicateFilesSkipped = 0
-
-  for await (const relativePath of glob.scan({ cwd: defsPath })) {
-    const normalizedPath = relativePath.replaceAll('\\', '/')
-    const dedupeKey = normalizedPath.toLowerCase()
-    if (seenFilePaths.has(dedupeKey)) {
-      duplicateFilesSkipped += 1
-      continue
-    }
-
-    seenFilePaths.add(dedupeKey)
-    const fullPath = join(defsPath, relativePath)
-    const fileStats = await stat(fullPath)
-    files.push({
-      relativePath: normalizedPath,
-      absolutePath: fullPath,
-      size: fileStats.size,
-      mtimeMs: fileStats.mtimeMs,
-    })
-  }
-
-  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
-  return { files, duplicateFilesSkipped }
-}
-
-async function writeXmlParseReports(
-  gameId: string,
-  reportsPath: string,
-  xmlParseReportPath: string,
-  xmlParseReportMarkdownPath: string,
-  filesIndexed: number,
-  failures: XmlParseFailure[]
-): Promise<void> {
-  await mkdir(reportsPath, { recursive: true })
-  await writeFile(
-    xmlParseReportPath,
-    JSON.stringify(
-      {
-        gameId,
-        generatedAt: new Date().toISOString(),
-        filesIndexed,
-        parseFailureCount: failures.length,
-        failures,
-      },
-      null,
-      2
-    ),
-    'utf8'
-  )
-  await writeFile(
-    xmlParseReportMarkdownPath,
-    renderParseReportMarkdown(gameId, filesIndexed, failures),
-    'utf8'
-  )
-}
-
 function prepareXmlInsertStatements(db: Database) {
+  const deleteByFile = Object.fromEntries(
+    XML_PROJECTION_TABLES.map(table => [table, db.prepare(`DELETE FROM ${table} WHERE filePath = $filePath`)])
+  ) as Record<(typeof XML_PROJECTION_TABLES)[number], ReturnType<Database['prepare']>>
+
   return {
+    deleteByFile,
+    deleteParseFailureByFile: db.prepare(`DELETE FROM xml_parse_failures WHERE filePath = $filePath`),
+    deleteTrackedFile: db.prepare(`DELETE FROM xml_files WHERE filePath = $filePath`),
+    upsertTrackedFile: db.prepare(`
+      INSERT OR REPLACE INTO xml_files (filePath, fileSize, fileMtimeMs, indexedAt)
+      VALUES ($filePath, $fileSize, $fileMtimeMs, $indexedAt)
+    `),
     insertFts: db.prepare(`
       INSERT INTO xml_documents_fts (filePath, moduleName, content)
       VALUES ($filePath, $moduleName, $content)
@@ -2527,10 +1608,8 @@ function prepareXmlInsertStatements(db: Database) {
   }
 }
 
-function applyIndexedXmlRow(
-  row: XmlDocumentRow,
-  statements: ReturnType<typeof prepareXmlInsertStatements>
-): void {
+/** Writes one parsed document into every table, deduping rows first. */
+function applyXmlRow(row: XmlDocumentRow, statements: ReturnType<typeof prepareXmlInsertStatements>): void {
   statements.insertFts.run({
     $filePath: row.filePath,
     $moduleName: row.moduleName,
@@ -2721,56 +1800,6 @@ function applyIndexedXmlRow(
       $errorName: row.parseFailure.errorName,
       $message: row.parseFailure.message,
     })
-  }
-}
-
-async function buildXmlDocumentRow(file: XmlSourceFileSnapshot): Promise<XmlDocumentRow> {
-  const moduleName = inferModuleName(file.relativePath)
-  const xmlText = await readXmlTextFile(file.absolutePath)
-
-  const entities: XmlEntityRow[] = []
-  const localizations: LocalizationRow[] = []
-  const itemProjections: BannerlordItemProjectionRow[] = []
-  const troopProjections: BannerlordTroopProjectionRow[] = []
-  const heroProjections: BannerlordHeroProjectionRow[] = []
-  const cultureProjections: BannerlordCultureProjectionRow[] = []
-  const skillProjections: BannerlordSkillProjectionRow[] = []
-  const clanProjections: BannerlordClanProjectionRow[] = []
-  const kingdomProjections: BannerlordKingdomProjectionRow[] = []
-  const settlementProjections: BannerlordSettlementProjectionRow[] = []
-  let parseFailure: XmlParseFailure | null = null
-
-  try {
-    const xmlObj = parser.parse(xmlText)
-    collectXmlEntities(xmlObj, file.relativePath, entities)
-    collectLocalizations(xmlObj, file.relativePath, localizations)
-    collectItemProjections(xmlObj, file.relativePath, itemProjections)
-    collectTroopProjections(xmlObj, file.relativePath, troopProjections)
-    collectHeroProjections(xmlObj, file.relativePath, heroProjections)
-    collectCultureProjections(xmlObj, file.relativePath, cultureProjections)
-    collectSkillProjections(xmlObj, file.relativePath, skillProjections)
-    collectClanProjections(xmlObj, file.relativePath, clanProjections)
-    collectKingdomProjections(xmlObj, file.relativePath, kingdomProjections)
-    collectSettlementProjections(xmlObj, file.relativePath, settlementProjections)
-  } catch (error) {
-    parseFailure = buildParseFailure(file.relativePath, moduleName, error)
-  }
-
-  return {
-    moduleName,
-    filePath: file.relativePath,
-    content: xmlText,
-    parseFailure,
-    entities,
-    localizations,
-    itemProjections,
-    troopProjections,
-    heroProjections,
-    cultureProjections,
-    skillProjections,
-    clanProjections,
-    kingdomProjections,
-    settlementProjections,
   }
 }
 

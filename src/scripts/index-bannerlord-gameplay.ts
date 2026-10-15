@@ -4,6 +4,16 @@ import { join, relative } from 'node:path'
 import { getGamePaths } from '../utils/env'
 import { normalizeBannerlordPolicyId } from '../utils/bannerlord-policy-id'
 
+/**
+ * Gameplay index: parses the decompiled CampaignSystem sources for policy
+ * and perk definitions and projects them into dedicated SQLite tables that
+ * downstream tools join against.
+ *
+ * The decompiled C# is parsed with structure-aware regexes (Create-map +
+ * Initialize-call extraction); that is deliberate — a real Roslyn pass is
+ * overkill for these two source files' highly regular shape.
+ */
+
 type BannerlordPolicyProjectionRow = {
   policyId: string
   rawPolicyId: string
@@ -44,6 +54,28 @@ type BannerlordPerkProjectionRow = {
   sourceOrder: number
 }
 
+/** Positional argument layout of `DefaultPerk.Initialize(...)` calls. */
+const PERK_ARGUMENT_INDEX = {
+  displayName: 0,
+  skillId: 1,
+  tier: 2,
+  alternative: 3,
+  primaryDescription: 4,
+  primaryRole: 5,
+  primaryBonus: 6,
+  primaryIncrementType: 7,
+  secondaryDescription: 8,
+  secondaryRole: 9,
+  secondaryBonus: 10,
+  secondaryIncrementType: 11,
+  primaryTroopUsageMask: 12,
+  secondaryTroopUsageMask: 13,
+} as const
+
+/** A valid policy/perk Initialize call must supply at least this many args. */
+const POLICY_MIN_ARGUMENTS = 7
+const PERK_MIN_ARGUMENTS = 8
+
 const DEFAULT_PERKS_RELATIVE_PATH = join(
   'bin',
   'Win64_Shipping_Client',
@@ -63,6 +95,7 @@ const POLICY_SOURCE_RELATIVE_PATHS = [
   join('Modules', 'NavalDLC', 'bin', 'Win64_Shipping_Client', 'NavalDLC', 'NavalDLC', 'NavalPolicies.cs'),
 ]
 
+/** Used when the source's own TierSkillRequirements table cannot be found. */
 const DEFAULT_TIER_SKILL_REQUIREMENTS = [25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300]
 
 export async function buildBannerlordGameplayIndex(gameId?: string): Promise<{
@@ -80,8 +113,7 @@ export async function buildBannerlordGameplayIndex(gameId?: string): Promise<{
   const db = new Database(dbPath)
 
   try {
-    db.run('PRAGMA busy_timeout = 5000;')
-    db.run('PRAGMA journal_mode = WAL;')
+    applySqlitePragmas(db)
 
     const activeKingdomIdsByPolicy = loadPolicyRefsByEntity(db, 'bannerlord_kingdoms', 'kingdomId', 'policyIdsJson')
     const defaultCultureIdsByPolicy = loadPolicyRefsByEntity(
@@ -96,128 +128,9 @@ export async function buildBannerlordGameplayIndex(gameId?: string): Promise<{
       extractPerkProjections(sourcePath),
     ])
 
-    db.run('DROP TABLE IF EXISTS bannerlord_policies;')
-    db.run('DROP TABLE IF EXISTS bannerlord_perks;')
+    createGameplayTables(db)
 
-    db.run(`
-      CREATE TABLE bannerlord_policies (
-        policyId TEXT PRIMARY KEY,
-        rawPolicyId TEXT NOT NULL,
-        filePath TEXT NOT NULL,
-        sourceModule TEXT NOT NULL,
-        displayName TEXT,
-        descriptionText TEXT,
-        proposalText TEXT,
-        effectsText TEXT,
-        rulerSupport REAL,
-        lordsSupport REAL,
-        commonsSupport REAL,
-        activeKingdomIdsJson TEXT NOT NULL,
-        defaultCultureIdsJson TEXT NOT NULL,
-        activeKingdomCount INTEGER NOT NULL,
-        defaultCultureCount INTEGER NOT NULL
-      );
-    `)
-
-    db.run(`
-      CREATE TABLE bannerlord_perks (
-        perkId TEXT PRIMARY KEY,
-        filePath TEXT NOT NULL,
-        sourceModule TEXT NOT NULL,
-        skillId TEXT,
-        tierIndex INTEGER,
-        requiredSkillValue INTEGER,
-        alternativePerkId TEXT,
-        displayName TEXT,
-        primaryDescription TEXT,
-        primaryRole TEXT,
-        primaryBonus REAL,
-        primaryIncrementType TEXT,
-        primaryTroopUsageMask TEXT,
-        secondaryDescription TEXT,
-        secondaryRole TEXT,
-        secondaryBonus REAL,
-        secondaryIncrementType TEXT,
-        secondaryTroopUsageMask TEXT,
-        sourceOrder INTEGER NOT NULL
-      );
-    `)
-
-    db.run('CREATE INDEX bannerlord_policies_source_module_idx ON bannerlord_policies(sourceModule);')
-    db.run('CREATE INDEX bannerlord_perks_skill_id_idx ON bannerlord_perks(skillId);')
-    db.run('CREATE INDEX bannerlord_perks_source_order_idx ON bannerlord_perks(sourceOrder);')
-
-    const insertPolicy = db.prepare(`
-      INSERT OR REPLACE INTO bannerlord_policies (
-        policyId, rawPolicyId, filePath, sourceModule, displayName, descriptionText, proposalText, effectsText,
-        rulerSupport, lordsSupport, commonsSupport, activeKingdomIdsJson, defaultCultureIdsJson,
-        activeKingdomCount, defaultCultureCount
-      ) VALUES (
-        $policyId, $rawPolicyId, $filePath, $sourceModule, $displayName, $descriptionText, $proposalText, $effectsText,
-        $rulerSupport, $lordsSupport, $commonsSupport, $activeKingdomIdsJson, $defaultCultureIdsJson,
-        $activeKingdomCount, $defaultCultureCount
-      )
-    `)
-
-    const insertPerk = db.prepare(`
-      INSERT OR REPLACE INTO bannerlord_perks (
-        perkId, filePath, sourceModule, skillId, tierIndex, requiredSkillValue, alternativePerkId,
-        displayName, primaryDescription, primaryRole, primaryBonus, primaryIncrementType, primaryTroopUsageMask,
-        secondaryDescription, secondaryRole, secondaryBonus, secondaryIncrementType, secondaryTroopUsageMask, sourceOrder
-      ) VALUES (
-        $perkId, $filePath, $sourceModule, $skillId, $tierIndex, $requiredSkillValue, $alternativePerkId,
-        $displayName, $primaryDescription, $primaryRole, $primaryBonus, $primaryIncrementType, $primaryTroopUsageMask,
-        $secondaryDescription, $secondaryRole, $secondaryBonus, $secondaryIncrementType, $secondaryTroopUsageMask, $sourceOrder
-      )
-    `)
-
-    const transaction = db.transaction(() => {
-      for (const row of policies) {
-        insertPolicy.run({
-          $policyId: row.policyId,
-          $rawPolicyId: row.rawPolicyId,
-          $filePath: row.filePath,
-          $sourceModule: row.sourceModule,
-          $displayName: row.displayName,
-          $descriptionText: row.descriptionText,
-          $proposalText: row.proposalText,
-          $effectsText: row.effectsText,
-          $rulerSupport: row.rulerSupport,
-          $lordsSupport: row.lordsSupport,
-          $commonsSupport: row.commonsSupport,
-          $activeKingdomIdsJson: row.activeKingdomIdsJson,
-          $defaultCultureIdsJson: row.defaultCultureIdsJson,
-          $activeKingdomCount: row.activeKingdomCount,
-          $defaultCultureCount: row.defaultCultureCount,
-        })
-      }
-
-      for (const row of perks) {
-        insertPerk.run({
-          $perkId: row.perkId,
-          $filePath: row.filePath,
-          $sourceModule: row.sourceModule,
-          $skillId: row.skillId,
-          $tierIndex: row.tierIndex,
-          $requiredSkillValue: row.requiredSkillValue,
-          $alternativePerkId: row.alternativePerkId,
-          $displayName: row.displayName,
-          $primaryDescription: row.primaryDescription,
-          $primaryRole: row.primaryRole,
-          $primaryBonus: row.primaryBonus,
-          $primaryIncrementType: row.primaryIncrementType,
-          $primaryTroopUsageMask: row.primaryTroopUsageMask,
-          $secondaryDescription: row.secondaryDescription,
-          $secondaryRole: row.secondaryRole,
-          $secondaryBonus: row.secondaryBonus,
-          $secondaryIncrementType: row.secondaryIncrementType,
-          $secondaryTroopUsageMask: row.secondaryTroopUsageMask,
-          $sourceOrder: row.sourceOrder,
-        })
-      }
-    })
-
-    transaction()
+    insertGameplayRows(db, policies, perks)
 
     console.log(`Indexed ${policies.length} Bannerlord policies and ${perks.length} Bannerlord perks.`)
 
@@ -228,6 +141,142 @@ export async function buildBannerlordGameplayIndex(gameId?: string): Promise<{
   } finally {
     db.close()
   }
+}
+
+function applySqlitePragmas(db: Database): void {
+  db.run('PRAGMA busy_timeout = 5000;')
+  db.run('PRAGMA journal_mode = WAL;')
+}
+
+function createGameplayTables(db: Database): void {
+  db.run('DROP TABLE IF EXISTS bannerlord_policies;')
+  db.run('DROP TABLE IF EXISTS bannerlord_perks;')
+
+  db.run(`
+    CREATE TABLE bannerlord_policies (
+      policyId TEXT PRIMARY KEY,
+      rawPolicyId TEXT NOT NULL,
+      filePath TEXT NOT NULL,
+      sourceModule TEXT NOT NULL,
+      displayName TEXT,
+      descriptionText TEXT,
+      proposalText TEXT,
+      effectsText TEXT,
+      rulerSupport REAL,
+      lordsSupport REAL,
+      commonsSupport REAL,
+      activeKingdomIdsJson TEXT NOT NULL,
+      defaultCultureIdsJson TEXT NOT NULL,
+      activeKingdomCount INTEGER NOT NULL,
+      defaultCultureCount INTEGER NOT NULL
+    );
+  `)
+
+  db.run(`
+    CREATE TABLE bannerlord_perks (
+      perkId TEXT PRIMARY KEY,
+      filePath TEXT NOT NULL,
+      sourceModule TEXT NOT NULL,
+      skillId TEXT,
+      tierIndex INTEGER,
+      requiredSkillValue INTEGER,
+      alternativePerkId TEXT,
+      displayName TEXT,
+      primaryDescription TEXT,
+      primaryRole TEXT,
+      primaryBonus REAL,
+      primaryIncrementType TEXT,
+      primaryTroopUsageMask TEXT,
+      secondaryDescription TEXT,
+      secondaryRole TEXT,
+      secondaryBonus REAL,
+      secondaryIncrementType TEXT,
+      secondaryTroopUsageMask TEXT,
+      sourceOrder INTEGER NOT NULL
+    );
+  `)
+
+  db.run('CREATE INDEX bannerlord_policies_source_module_idx ON bannerlord_policies(sourceModule);')
+  db.run('CREATE INDEX bannerlord_perks_skill_id_idx ON bannerlord_perks(skillId);')
+  db.run('CREATE INDEX bannerlord_perks_source_order_idx ON bannerlord_perks(sourceOrder);')
+}
+
+function insertGameplayRows(
+  db: Database,
+  policies: BannerlordPolicyProjectionRow[],
+  perks: BannerlordPerkProjectionRow[]
+): void {
+  const insertPolicy = db.prepare(`
+    INSERT OR REPLACE INTO bannerlord_policies (
+      policyId, rawPolicyId, filePath, sourceModule, displayName, descriptionText, proposalText, effectsText,
+      rulerSupport, lordsSupport, commonsSupport, activeKingdomIdsJson, defaultCultureIdsJson,
+      activeKingdomCount, defaultCultureCount
+    ) VALUES (
+      $policyId, $rawPolicyId, $filePath, $sourceModule, $displayName, $descriptionText, $proposalText, $effectsText,
+      $rulerSupport, $lordsSupport, $commonsSupport, $activeKingdomIdsJson, $defaultCultureIdsJson,
+      $activeKingdomCount, $defaultCultureCount
+    )
+  `)
+
+  const insertPerk = db.prepare(`
+    INSERT OR REPLACE INTO bannerlord_perks (
+      perkId, filePath, sourceModule, skillId, tierIndex, requiredSkillValue, alternativePerkId,
+      displayName, primaryDescription, primaryRole, primaryBonus, primaryIncrementType, primaryTroopUsageMask,
+      secondaryDescription, secondaryRole, secondaryBonus, secondaryIncrementType, secondaryTroopUsageMask, sourceOrder
+    ) VALUES (
+      $perkId, $filePath, $sourceModule, $skillId, $tierIndex, $requiredSkillValue, $alternativePerkId,
+      $displayName, $primaryDescription, $primaryRole, $primaryBonus, $primaryIncrementType, $primaryTroopUsageMask,
+      $secondaryDescription, $secondaryRole, $secondaryBonus, $secondaryIncrementType, $secondaryTroopUsageMask, $sourceOrder
+    )
+  `)
+
+  const insertAll = db.transaction(() => {
+    for (const row of policies) {
+      insertPolicy.run({
+        $policyId: row.policyId,
+        $rawPolicyId: row.rawPolicyId,
+        $filePath: row.filePath,
+        $sourceModule: row.sourceModule,
+        $displayName: row.displayName,
+        $descriptionText: row.descriptionText,
+        $proposalText: row.proposalText,
+        $effectsText: row.effectsText,
+        $rulerSupport: row.rulerSupport,
+        $lordsSupport: row.lordsSupport,
+        $commonsSupport: row.commonsSupport,
+        $activeKingdomIdsJson: row.activeKingdomIdsJson,
+        $defaultCultureIdsJson: row.defaultCultureIdsJson,
+        $activeKingdomCount: row.activeKingdomCount,
+        $defaultCultureCount: row.defaultCultureCount,
+      })
+    }
+
+    for (const row of perks) {
+      insertPerk.run({
+        $perkId: row.perkId,
+        $filePath: row.filePath,
+        $sourceModule: row.sourceModule,
+        $skillId: row.skillId,
+        $tierIndex: row.tierIndex,
+        $requiredSkillValue: row.requiredSkillValue,
+        $alternativePerkId: row.alternativePerkId,
+        $displayName: row.displayName,
+        $primaryDescription: row.primaryDescription,
+        $primaryRole: row.primaryRole,
+        $primaryBonus: row.primaryBonus,
+        $primaryIncrementType: row.primaryIncrementType,
+        $primaryTroopUsageMask: row.primaryTroopUsageMask,
+        $secondaryDescription: row.secondaryDescription,
+        $secondaryRole: row.secondaryRole,
+        $secondaryBonus: row.secondaryBonus,
+        $secondaryIncrementType: row.secondaryIncrementType,
+        $secondaryTroopUsageMask: row.secondaryTroopUsageMask,
+        $sourceOrder: row.sourceOrder,
+      })
+    }
+  })
+
+  insertAll()
 }
 
 async function extractPolicyProjections(
@@ -244,11 +293,11 @@ async function extractPolicyProjections(
     }
 
     const sourceText = await readFile(absolutePath, 'utf8')
-    const createMap = parseCreateMap(sourceText)
+    const createdIds = parseCreateMap(sourceText)
     const sourceModule = inferSourceModule(relativePath)
 
     for (const { fieldName, argumentsText } of extractInitializeCalls(sourceText)) {
-      const rawPolicyId = createMap.get(fieldName)
+      const rawPolicyId = createdIds.get(fieldName)
       if (!rawPolicyId) {
         continue
       }
@@ -259,7 +308,7 @@ async function extractPolicyProjections(
       }
 
       const args = splitTopLevelArguments(argumentsText)
-      if (args.length < 7) {
+      if (args.length < POLICY_MIN_ARGUMENTS) {
         continue
       }
 
@@ -296,44 +345,45 @@ async function extractPerkProjections(sourcePath: string): Promise<BannerlordPer
   }
 
   const sourceText = await readFile(absolutePath, 'utf8')
-  const createMap = parseCreateMap(sourceText)
+  const createdIds = parseCreateMap(sourceText)
   const tierSkillRequirements = parseTierSkillRequirements(sourceText)
   const rows: BannerlordPerkProjectionRow[] = []
 
   let sourceOrder = 0
   for (const { fieldName, argumentsText } of extractInitializeCalls(sourceText)) {
-    const perkId = createMap.get(fieldName)
+    const perkId = createdIds.get(fieldName)
     if (!perkId) {
       continue
     }
 
     const args = splitTopLevelArguments(argumentsText)
-    if (args.length < 8) {
+    if (args.length < PERK_MIN_ARGUMENTS) {
       continue
     }
 
     sourceOrder += 1
-    const tierInfo = resolveTierRequirement(args[2], tierSkillRequirements)
+    const tier = resolveTierRequirement(args[PERK_ARGUMENT_INDEX.tier], tierSkillRequirements)
+    const i = PERK_ARGUMENT_INDEX
 
     rows.push({
       perkId,
       filePath: normalizeSourceFilePath(sourcePath, absolutePath),
       sourceModule: 'CampaignSystem',
-      skillId: normalizeMemberAccess(args[1], 'DefaultSkills.'),
-      tierIndex: tierInfo.tierIndex,
-      requiredSkillValue: tierInfo.requiredSkillValue,
-      alternativePerkId: resolveCreatedReference(args[3], createMap),
-      displayName: extractFirstStringLiteral(args[0]),
-      primaryDescription: extractFirstStringLiteral(args[4]),
-      primaryRole: normalizeMemberAccess(args[5], 'PartyRole.'),
-      primaryBonus: parseNumericLiteral(args[6]),
-      primaryIncrementType: normalizeMemberAccess(args[7], 'EffectIncrementType.'),
-      primaryTroopUsageMask: normalizeFlagExpression(args[12], 'TroopUsageFlags.'),
-      secondaryDescription: extractFirstStringLiteral(args[8]),
-      secondaryRole: normalizeMemberAccess(args[9], 'PartyRole.'),
-      secondaryBonus: parseNumericLiteral(args[10]),
-      secondaryIncrementType: normalizeMemberAccess(args[11], 'EffectIncrementType.'),
-      secondaryTroopUsageMask: normalizeFlagExpression(args[13], 'TroopUsageFlags.'),
+      skillId: normalizeMemberAccess(args[i.skillId], 'DefaultSkills.'),
+      tierIndex: tier.tierIndex,
+      requiredSkillValue: tier.requiredSkillValue,
+      alternativePerkId: resolveCreatedReference(args[i.alternative], createdIds),
+      displayName: extractFirstStringLiteral(args[i.displayName]),
+      primaryDescription: extractFirstStringLiteral(args[i.primaryDescription]),
+      primaryRole: normalizeMemberAccess(args[i.primaryRole], 'PartyRole.'),
+      primaryBonus: parseNumericLiteral(args[i.primaryBonus]),
+      primaryIncrementType: normalizeMemberAccess(args[i.primaryIncrementType], 'EffectIncrementType.'),
+      primaryTroopUsageMask: normalizeFlagExpression(args[i.primaryTroopUsageMask], 'TroopUsageFlags.'),
+      secondaryDescription: extractFirstStringLiteral(args[i.secondaryDescription]),
+      secondaryRole: normalizeMemberAccess(args[i.secondaryRole], 'PartyRole.'),
+      secondaryBonus: parseNumericLiteral(args[i.secondaryBonus]),
+      secondaryIncrementType: normalizeMemberAccess(args[i.secondaryIncrementType], 'EffectIncrementType.'),
+      secondaryTroopUsageMask: normalizeFlagExpression(args[i.secondaryTroopUsageMask], 'TroopUsageFlags.'),
       sourceOrder,
     })
   }
@@ -341,6 +391,7 @@ async function extractPerkProjections(sourcePath: string): Promise<BannerlordPer
   return dedupePerks(rows)
 }
 
+/** Reads kingdom/culture → policy references from already-built XML tables. */
 function loadPolicyRefsByEntity(
   db: Database,
   tableName: string,
@@ -355,7 +406,7 @@ function loadPolicyRefsByEntity(
     .query<Record<string, unknown>, never>(`SELECT ${entityColumn}, ${jsonColumn} FROM ${tableName}`)
     .all()
 
-  const refs = new Map<string, Set<string>>()
+  const refsByPolicy = new Map<string, Set<string>>()
   for (const row of rows) {
     const entityId = typeof row[entityColumn] === 'string' ? row[entityColumn] : null
     if (!entityId) {
@@ -363,46 +414,50 @@ function loadPolicyRefsByEntity(
     }
 
     for (const policyId of parseIdList(row[jsonColumn])) {
-      if (!refs.has(policyId)) {
-        refs.set(policyId, new Set())
-      }
-
-      refs.get(policyId)!.add(entityId)
+      const bucket = refsByPolicy.get(policyId) ?? new Set<string>()
+      bucket.add(entityId)
+      refsByPolicy.set(policyId, bucket)
     }
   }
 
   return new Map(
-    [...refs.entries()].map(([policyId, values]) => [policyId, [...values].sort((left, right) => left.localeCompare(right))])
+    [...refsByPolicy.entries()].map(([policyId, values]) => [policyId, [...values].sort((left, right) => left.localeCompare(right))])
   )
 }
 
+/** Extracts `_<field> = Create("<id>");` pairs — the id registry of a source file. */
 function parseCreateMap(sourceText: string): Map<string, string> {
-  const result = new Map<string, string>()
-  const regex = /^\s*(_[A-Za-z0-9]+)\s*=\s*Create\("([^"]+)"\);/gm
+  const idsByField = new Map<string, string>()
+  const pattern = /^\s*(_[A-Za-z0-9]+)\s*=\s*Create\("([^"]+)"\);/gm
 
   let match: RegExpExecArray | null
-  while ((match = regex.exec(sourceText)) !== null) {
-    result.set(match[1], match[2])
+  while ((match = pattern.exec(sourceText)) !== null) {
+    idsByField.set(match[1], match[2])
   }
 
-  return result
+  return idsByField
 }
 
+/** Extracts every `_<field>.Initialize(...);` call with its raw argument list. */
 function extractInitializeCalls(sourceText: string): Array<{ fieldName: string; argumentsText: string }> {
-  const rows: Array<{ fieldName: string; argumentsText: string }> = []
-  const regex = /^\s*(_[A-Za-z0-9]+)\.Initialize\((.+)\);\s*$/gm
+  const calls: Array<{ fieldName: string; argumentsText: string }> = []
+  const pattern = /^\s*(_[A-Za-z0-9]+)\.Initialize\((.+)\);\s*$/gm
 
   let match: RegExpExecArray | null
-  while ((match = regex.exec(sourceText)) !== null) {
-    rows.push({
+  while ((match = pattern.exec(sourceText)) !== null) {
+    calls.push({
       fieldName: match[1],
       argumentsText: match[2],
     })
   }
 
-  return rows
+  return calls
 }
 
+/**
+ * Splits a C# argument list on top-level commas only: strings, nested
+ * parentheses, brackets, and braces are all respected.
+ */
 function splitTopLevelArguments(argumentsText: string): string[] {
   const parts: string[] = []
   let current = ''
@@ -458,6 +513,7 @@ function splitTopLevelArguments(argumentsText: string): string[] {
   return parts
 }
 
+/** First double-quoted literal in the expression, with C# escapes resolved. */
 function extractFirstStringLiteral(expression: string | undefined): string | null {
   if (!expression) return null
 
@@ -471,6 +527,7 @@ function extractFirstStringLiteral(expression: string | undefined): string | nul
     .replaceAll('\\\\', '\\')
 }
 
+/** C# numeric literal (optional trailing `f`); `null` yields null. */
 function parseNumericLiteral(expression: string | undefined): number | null {
   if (!expression) return null
 
@@ -483,6 +540,10 @@ function parseNumericLiteral(expression: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+/**
+ * Strips a qualification prefix (`DefaultSkills.` etc.) from a member
+ * access expression; bare or `null` inputs pass through unchanged.
+ */
 function normalizeMemberAccess(expression: string | undefined, prefix: string): string | null {
   if (!expression) return null
 
@@ -498,6 +559,7 @@ function normalizeMemberAccess(expression: string | undefined, prefix: string): 
   return trimmed
 }
 
+/** Normalizes `Flag.A | Flag.B` expressions, dropping the shared prefix. */
 function normalizeFlagExpression(expression: string | undefined, prefix: string): string | null {
   if (!expression) return null
 
@@ -513,7 +575,8 @@ function normalizeFlagExpression(expression: string | undefined, prefix: string)
     .join(' | ')
 }
 
-function resolveCreatedReference(expression: string | undefined, createMap: Map<string, string>): string | null {
+/** Resolves a field reference through the file's Create-map. */
+function resolveCreatedReference(expression: string | undefined, createdIds: Map<string, string>): string | null {
   if (!expression) return null
 
   const trimmed = expression.trim()
@@ -521,9 +584,10 @@ function resolveCreatedReference(expression: string | undefined, createMap: Map<
     return null
   }
 
-  return createMap.get(trimmed) ?? null
+  return createdIds.get(trimmed) ?? null
 }
 
+/** Reads the source's tier→skill-value table, falling back to known defaults. */
 function parseTierSkillRequirements(sourceText: string): number[] {
   const match = sourceText.match(/TierSkillRequirements\s*=\s*new int\[\d+\]\s*\{([\s\S]*?)\};/m)
   if (!match) {
@@ -538,6 +602,10 @@ function parseTierSkillRequirements(sourceText: string): number[] {
   return values.length > 0 ? values : DEFAULT_TIER_SKILL_REQUIREMENTS
 }
 
+/**
+ * Tiers are expressed either as `GetTierCost(n)` (index into the table) or
+ * as a direct skill-value literal (reverse lookup in the table).
+ */
 function resolveTierRequirement(
   expression: string | undefined,
   tierSkillRequirements: number[]
@@ -549,9 +617,9 @@ function resolveTierRequirement(
     }
   }
 
-  const tierMatch = expression.match(/GetTierCost\((\d+)\)/)
-  if (tierMatch) {
-    const tierIndex = Number(tierMatch[1])
+  const tierCall = expression.match(/GetTierCost\((\d+)\)/)
+  if (tierCall) {
+    const tierIndex = Number(tierCall[1])
     const requiredSkillValue = tierSkillRequirements[tierIndex - 1] ?? null
     return { tierIndex, requiredSkillValue }
   }
@@ -570,6 +638,7 @@ function resolveTierRequirement(
   }
 }
 
+/** Parses a JSON id array column, normalizing and sorting its members. */
 function parseIdList(value: unknown): string[] {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return []
@@ -621,6 +690,7 @@ function dedupePerks(rows: BannerlordPerkProjectionRow[]): BannerlordPerkProject
   return result.sort((left, right) => left.sourceOrder - right.sourceOrder)
 }
 
+/** `Modules/<Name>/…` maps to the module name; core sources are CampaignSystem. */
 function inferSourceModule(relativePath: string): string {
   const normalized = relativePath.replaceAll('\\', '/')
   if (normalized.startsWith('Modules/')) {

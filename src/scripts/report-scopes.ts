@@ -16,6 +16,11 @@ type ScopeReport = {
 const DLL_SCOPES: DllImportScope[] = ['core', 'modding', 'official', 'all']
 const XML_SCOPES: XmlImportScope[] = ['official', 'all']
 
+/**
+ * Reports how many DLLs / XML files each import scope would pull in for a
+ * game profile, so operators can sanity-check scope flags before running a
+ * full setup. `--json` emits the same data machine-readably.
+ */
 export async function runScopeReport(args = process.argv.slice(2)): Promise<void> {
   const options = parseArgs(args)
   const profile = getGameProfile(options.game)
@@ -31,34 +36,23 @@ export async function runScopeReport(args = process.argv.slice(2)): Promise<void
     throw new Error(`Game directory does not match the '${options.game}' profile: ${gameDir}`)
   }
 
-  const report: ScopeReport = {
-    game: options.game,
-    gameDir,
-    dllScopes: {
-      core: 0,
-      modding: 0,
-      official: 0,
-      all: 0,
-    },
-    xmlScopes: {
-      official: { files: 0, includedModules: [], skippedModules: [] },
-      all: { files: 0, includedModules: [], skippedModules: [] },
-    },
-  }
-
+  const dllScopes = {} as Record<DllImportScope, number>
   for (const scope of DLL_SCOPES) {
     const files = await profile.collectDllCandidates(gameDir, { dllScope: scope })
-    report.dllScopes[scope] = files.length
+    dllScopes[scope] = files.length
   }
 
+  const xmlScopes = {} as ScopeReport['xmlScopes']
   for (const scope of XML_SCOPES) {
     const result = await profile.collectXmlFiles(gameDir, { xmlScope: scope })
-    report.xmlScopes[scope] = {
+    xmlScopes[scope] = {
       files: result.files.length,
       includedModules: result.includedModules.map(item => item.moduleName),
       skippedModules: result.skippedModules.map(item => item.moduleName),
     }
   }
+
+  const report: ScopeReport = { game: options.game, gameDir, dllScopes, xmlScopes }
 
   if (options.json) {
     console.log(JSON.stringify(report, null, 2))
@@ -68,42 +62,37 @@ export async function runScopeReport(args = process.argv.slice(2)): Promise<void
   printHumanReport(report)
 }
 
+/**
+ * Minimal CLI walker: supports both `--flag value` and `--flag=value`
+ * forms without pulling in an argument-parsing dependency.
+ */
 function parseArgs(args: string[]): Options {
   const result: Options = {
     game: 'bannerlord',
     json: false,
   }
 
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]
-    const next = args[index + 1]
-
-    if (arg === '--game' && next) {
-      result.game = next
-      index += 1
-      continue
+  const readValue = (flag: string): string | undefined => {
+    const inline = args.find(arg => arg.startsWith(`${flag}=`))
+    if (inline) {
+      return inline.slice(flag.length + 1)
     }
+    const index = args.indexOf(flag)
+    return index !== -1 ? args[index + 1] : undefined
+  }
 
-    if (arg.startsWith('--game=')) {
-      result.game = arg.slice('--game='.length)
-      continue
-    }
+  const game = readValue('--game')
+  if (game) {
+    result.game = game
+  }
 
-    if (arg === '--game-dir' && next) {
-      result.gameDir = next
-      index += 1
-      continue
-    }
+  const gameDir = readValue('--game-dir')
+  if (gameDir) {
+    result.gameDir = gameDir
+  }
 
-    if (arg.startsWith('--game-dir=')) {
-      result.gameDir = arg.slice('--game-dir='.length)
-      continue
-    }
-
-    if (arg === '--json') {
-      result.json = true
-      continue
-    }
+  if (args.includes('--json')) {
+    result.json = true
   }
 
   return result
