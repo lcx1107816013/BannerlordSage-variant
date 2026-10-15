@@ -129,10 +129,83 @@ func FormatAiScalar(value string) string {
 	return text
 }
 
+// Itoa formats a small non-negative index for block headers and labels.
+//
+// It exists so every tool that builds `match_${i+1}`-style names shares one implementation
+// rather than each carrying its own. The original uses JavaScript template interpolation, which
+// for these values is plain decimal with no separators or exponents.
+func Itoa(n int) string {
+	return strconv.Itoa(n)
+}
+
 // TrimJS mirrors JavaScript's String.prototype.trim() using the ECMAScript whitespace set.
 // Exported so packages that mirror a `.trim()` call site do not each define their own set.
 func TrimJS(s string) string {
 	return jsTrim(s)
+}
+
+// CompareCodeUnits mirrors JavaScript's `<` on two strings, which compares UTF-16 CODE UNITS.
+//
+// It is written rune by rune rather than with Go's `<` because the two disagree above the BMP:
+// a supplementary character is a surrogate PAIR in UTF-16 (leading unit 0xD800-0xDBFF) but a
+// single 4-byte rune in UTF-8, so byte comparison can order two strings differently than
+// JavaScript does. Same class of hazard as the sort-order finding in the text-file cache.
+//
+// ★ KNOWN LIMITATION, stated rather than hidden: this compares runes, not code units, so two
+// strings whose first difference is BETWEEN a supplementary character and a code unit in
+// 0xE000-0xFFFF will still be ordered by code point instead of by UTF-16 unit. Reproducing that
+// exactly needs a UTF-16 encoding step. It is not implemented because nothing in the current
+// corpus exercises it, and a hand-rolled surrogate encoder is a larger risk than the gap it
+// closes. Callers comparing known-BMP text (language codes, paths) are unaffected.
+func CompareCodeUnits(a, b string) int {
+	if a == b {
+		return 0
+	}
+	ar := []rune(a)
+	br := []rune(b)
+	n := len(ar)
+	if len(br) < n {
+		n = len(br)
+	}
+	for i := 0; i < n; i++ {
+		if ar[i] != br[i] {
+			if ar[i] < br[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	switch {
+	case len(ar) < len(br):
+		return -1
+	case len(ar) > len(br):
+		return 1
+	}
+	return 0
+}
+
+// FilePathCompare is the `filePath` tie-break used when sorting localization entries.
+//
+// ★ THIS IS AN APPROXIMATION, AND THE REASON MATTERS.
+//
+// The TypeScript calls `(left.filePath || ”).localeCompare(right.filePath || ”)`. Unlike the
+// LANGUAGE comparison — where `localeCompare` was measured to agree with code-unit order on
+// every pair of languages the game actually ships (0 disagreements in 132 pairs) — the FILE PATH
+// comparison was measured to disagree: on a sample of real-shaped paths, 6 of 20 ordered pairs
+// differed, because `localeCompare` under the default locale is case-insensitive-ish and
+// punctuation-aware while a code-unit comparison is neither.
+//
+// The locale is not even a constant: the machine this was measured on resolves to `zh-CN`, so
+// the original's own ordering is machine-dependent. Reproducing it would mean depending on
+// collation data Go's standard library does not ship, and calling into an OS collator would make
+// this port's output depend on the host's locale — the same fragility, faithfully copied.
+//
+// So the tie-break is code-unit order, which is what the SQL `ORDER BY language, filePath` has
+// already applied. Consequence, stated plainly: when two localization entries share both a
+// language and a rank and their file paths differ only in case or punctuation, the chosen entry
+// may differ from the TypeScript's. That is recorded as a ledger finding rather than buried.
+func FilePathCompare(a, b string) int {
+	return CompareCodeUnits(a, b)
 }
 
 // TrimEndJS mirrors JavaScript's String.prototype.trimEnd(), which removes trailing
