@@ -20,3 +20,8 @@ runtimecheck-probe-tree/
 # hidden FILE, which are cases the walker is supposed to skip. Committing them would need a file
 # inside the hidden directory, which is exactly what the case asserts must not happen.
 owndocs-tree/
+# Same reasoning again: the module corpus contains a directory with NO SubModule.xml, which git can
+# only represent as an EMPTY directory and therefore cannot track. The shape is emitted as data and
+# both sides build from it, and the `.dll` files the corpus needs would otherwise have to be committed
+# as content that means nothing (`content of X in Y`).
+moduletooling-game/
