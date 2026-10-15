@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -15,28 +14,23 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 // search_source parity (src/tools/search-source.ts)
 //
-// ★ ORDER IS COMPARED AS A SET, AND HERE IS EXACTLY WHY.
+// ★ ORDER IS NOW COMPARED EXACTLY, BYTE FOR BYTE, BECAUSE THE TOOL IS NOW DETERMINISTIC.
 //
-// The tool shells out to ripgrep WITHOUT --sort, so ripgrep emits matches in worker-completion
-// order, which is scheduling-dependent. Measured, not assumed: regenerating the fixtures three
-// times changed the ORDER of the [result_N] blocks every time, on a corpus with only six
-// matches. So byte-for-byte comparison is impossible for this tool at any corpus size, and a
-// suite that demanded it would fail for reasons unrelated to the port.
+// This test previously compared block SETS and had to explain why exact comparison was
+// impossible. The cause was that the tool truncated an arbitrarily ordered match list: ripgrep
+// emits matches in worker-completion order and no sort was applied, so every run returned a
+// different arrangement.
 //
-// What IS compared exactly:
-//   - the header lines: report_type, query_text, result_count
-//   - every top-level field, in order, byte for byte
-//   - the NUMBER of blocks
-//   - each block's full rendered text, including its result_label, field order, path
-//     normalisation, trailing-whitespace handling and submatch counts
+// The fix was NOT ripgrep's --sort, which would serialise the search and cost throughput. It was
+// to order the parsed matches in our own code before truncating. Measured first: ripgrep's match
+// SET is identical on every run, so only the emission order was ever unstable — meaning no
+// defined order was being preserved by leaving it alone. Regenerating these fixtures four times
+// against the sorted tool produced byte-identical output, where before every run differed.
 //
-// What is NOT compared:
-//   - the order of the blocks, because the upstream tool does not determine it
-//
-// Stating that limit is the point. A suite that compared sorted sets without saying so would
-// look like it verified ordering, and one that compared bytes would be red for no reason. The
-// nondeterminism itself is recorded as a property of the capability (ledger F22), because a
-// client of this tool cannot rely on result order either.
+// So this suite is now a byte-for-byte comparison of the whole rendered report, and the set
+// comparison plus its list of exclusions are gone. What the exclusions were for is now checked
+// more strictly than before: the `[result_N]` markers and `match_N` labels must appear in the
+// right positions, which set comparison could never verify.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type ssCase struct {
@@ -122,7 +116,6 @@ func TestSearchSourceMatchesTypeScript(t *testing.T) {
 	sandbox := filepath.Join("..", "..", "tools", "parity", "fixtures", "ripgrep-corpus")
 
 	compared := 0
-	orderVaried := 0
 
 	for _, c := range f.Results {
 		if !c.OK {
@@ -137,56 +130,25 @@ func TestSearchSourceMatchesTypeScript(t *testing.T) {
 			continue
 		}
 
-		want := splitRenderedReport(c.Text)
-		have := splitRenderedReport(got)
-
 		label := formattedLabel(c)
 
-		// The header carries report_type, query_text, result_count and every top-level field.
-		// Its ORDER is produced by the renderer, not by ripgrep, so it must match exactly.
-		if have.Header != want.Header {
-			t.Errorf("%s: header differs\n--- go ---\n%s--- ts ---\n%s", label, have.Header, want.Header)
-		}
-
-		if len(have.Blocks) != len(want.Blocks) {
-			t.Errorf("%s: block count differs: go=%d ts=%d\n--- go ---\n%s\n--- ts ---\n%s",
-				label, len(have.Blocks), len(want.Blocks), got, c.Text)
-			continue
-		}
-
-		// Compare as sets. Any difference in content, field order inside a block, path form or
-		// whitespace still fails here — only the block ORDER is excused, because it is not
-		// reproducible.
-		//
-		// ★ `result_label: match_N` is DROPPED before comparing, and the reason matters: the
-		// label is assigned BY POSITION (`match_${index + 1}`), so when ripgrep returns matches
-		// in a different order the same file legitimately carries a different label. Comparing
-		// the labels as content would report a difference that is not one. They are checked
-		// separately below, where being sequential is the actual claim.
-		goSorted := blockContents(have.Blocks)
-		tsSorted := blockContents(want.Blocks)
-		if !sameOrder(goSorted, tsSorted) {
-			orderVaried++
-		}
-		sort.Strings(goSorted)
-		sort.Strings(tsSorted)
-		if strings.Join(goSorted, "\x00") != strings.Join(tsSorted, "\x00") {
-			t.Errorf("%s: block contents differ (as sets)\n--- go ---\n%s\n--- ts ---\n%s",
+		// Byte-for-byte. No set comparison, no exclusions.
+		if got != c.Text {
+			t.Errorf("%s: rendered report differs\n--- go ---\n%s\n--- ts ---\n%s",
 				label, got, c.Text)
 		}
 
-		// The labels must be match_1..match_N, in order, in both.
-		assertSequentialLabels(t, "go", have.Blocks)
-		assertSequentialLabels(t, "ts", want.Blocks)
-
+		// The positional labels must still be sequential match_1..match_N. Byte comparison
+		// covers this, but asserting it names the property so a future refactor that stops
+		// numbering the blocks fails here with a clear message rather than a wall of diff.
+		assertSequentialLabels(t, "go", splitRenderedReport(got).Blocks)
 		compared++
 	}
 
 	if compared == 0 {
 		t.Fatal("no search_source cases were compared")
 	}
-	t.Logf("compared %d search_source reports against the TypeScript output (%d differed in block order only)",
-		compared, orderVaried)
+	t.Logf("compared %d search_source reports against the TypeScript output, byte for byte", compared)
 }
 
 func formattedLabel(c ssCase) string {
