@@ -2,7 +2,18 @@
 import { PathSandbox } from '../utils/path-sandbox'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 
-const MAX_MATCH_RESULTS = 120
+// ── RAISED FROM 120 TO 500 (deliberate behaviour change, ledger F22) ────────────────────────
+//
+// ripgrep runs without --sort, so matches arrive in worker-completion order and the slice below
+// keeps the first N of an arbitrarily ordered list. Measured on our own BlBridge C# source, a
+// 357-match query returned a DIFFERENT 120-match subset on all five runs, so the limit was
+// discarding results unstably. 500 covers the observed case, making those queries complete and
+// stable.
+//
+// A full 500-block response costs about 23,000 tokens (a block is ~182 chars), which is why it is
+// not raised further. ★ This does not make the tool deterministic in general: above 500 the
+// returned subset is still arbitrary, and the `truncated` field reports which case you are in.
+const MAX_MATCH_RESULTS = 500
 
 type RipgrepMatch = {
   filePath: string

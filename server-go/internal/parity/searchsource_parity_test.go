@@ -371,14 +371,18 @@ func TestSearchSourceParserEdgeCases(t *testing.T) {
 // matches: unique_file_count counts ALL matches before truncation, so it may exceed the number
 // of blocks rendered.
 func TestSearchSourceTruncationIsCounted(t *testing.T) {
+	// ★ 600, not 130. This test previously used 130 matches, which stopped truncating the moment
+	// the limit moved from 120 to 500 — it would have kept passing while verifying nothing.
+	// The count now has to exceed the limit with margin.
+	const total = 600
 	var lines []string
-	for i := 0; i < 130; i++ {
+	for i := 0; i < total; i++ {
 		lines = append(lines, `{"type":"match","data":{"path":{"text":"./f.cs"},"line_number":`+
 			itoaForTest(i+1)+`,"lines":{"text":"hit"},"submatches":[{}]}}`)
 	}
 	parsed := tools.ParseRipgrepJSON(strings.Join(lines, "\n"))
-	if len(parsed.Matches) != 130 {
-		t.Fatalf("expected 130 parsed matches, got %d", len(parsed.Matches))
+	if len(parsed.Matches) != total {
+		t.Fatalf("expected %d parsed matches, got %d", total, len(parsed.Matches))
 	}
 	if parsed.UniqueFileCount != 1 {
 		t.Errorf("unique file count = %d, want 1", parsed.UniqueFileCount)
@@ -394,11 +398,11 @@ func TestSearchSourceTruncationIsCounted(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	for _, want := range []string{
-		"total_matches_found: 130",
-		"matches_returned: 120",
-		"match_limit: 120",
+		"total_matches_found: 600",
+		"matches_returned: 500",
+		"match_limit: 500",
 		"truncated: true",
-		"result_count: 120",
+		"result_count: 500",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in the report:\n%s", want, out)

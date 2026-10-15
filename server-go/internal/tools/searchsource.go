@@ -9,8 +9,33 @@ import (
 	"blore/internal/report"
 )
 
-// maxMatchResults mirrors the TypeScript `const MAX_MATCH_RESULTS = 120`.
-const maxMatchResults = 120
+// maxMatchResults mirrors MAX_MATCH_RESULTS in src/tools/search-source.ts.
+//
+// ── ★ RAISED FROM 120 TO 500 — A DELIBERATE BEHAVIOUR CHANGE ──────────────────────────────
+//
+// This is the ONE place where this port intentionally does not match the code it was ported
+// from, so the reasoning is recorded here rather than left to be rediscovered.
+//
+// The problem (ledger F22): ripgrep runs without --sort, so matches arrive in worker-completion
+// order, and the tool truncates to the first N. Measured on our own BlBridge C# source, a
+// 357-match query returned a DIFFERENT 120-match subset on all five runs. A limit that silently
+// discards results in an unstable order makes the tool unusable for any query that exceeds it.
+//
+// 500 was chosen because it covers the case that was actually observed: the 357-match query now
+// fits inside the limit and is therefore returned IN FULL and is stable. It is not a round number
+// for its own sake; it is the smallest round value comfortably above the measured failure.
+//
+// The cost was measured rather than guessed. A rendered match block is about 182 characters, or
+// roughly 46 tokens, so a full 500-block response is about 23,000 tokens — large, and the reason
+// this is not raised further. Most queries return far fewer and cost far less.
+//
+// ★ AND THE LIMIT IS STILL A LIMIT. This does NOT make the tool deterministic in general: a query
+// matching more than 500 times still returns an arbitrary, unstable 500. Raising it pushes the
+// boundary out; it does not remove it. Removing it means either --sort (which changes WHICH
+// results come back, a divergence this project refuses) or returning everything (which is
+// bounded only by the corpus). So the honest statement is: below 500 results are now complete and
+// stable, above 500 they are still arbitrary — and the `truncated` field says which case you are in.
+const maxMatchResults = 500
 
 // RipgrepMatch is one parsed `type: "match"` event from ripgrep's --json stream.
 type RipgrepMatch struct {
