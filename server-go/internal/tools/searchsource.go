@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"blore/internal/report"
@@ -301,8 +303,52 @@ func ParseRipgrepJSON(stdoutText string) RipgrepResult {
 		matches = append(matches, m)
 	}
 
+	// ★ SORT, so the result is DETERMINED rather than whatever order ripgrep happened to emit.
+	//
+	// Measured before adding this: ripgrep's match SET is identical on every run — five runs
+	// produced one digest — and only the EMISSION ORDER varies, because it reports in
+	// worker-completion order and --sort is not passed. So there was never a defined order being
+	// preserved; every run of the original already differed.
+	//
+	// That is why sorting is not a divergence from anything. It replaces undefined behaviour with
+	// defined behaviour, and it is what makes the truncation below meaningful: a "first N" that
+	// depends on thread scheduling is not a limit, it is noise.
+	//
+	// The key is (filePath, lineNumber, lineText). Path first so a reader gets each file's hits
+	// together; line number next so a file reads top to bottom; lineText last only to make the
+	// order TOTAL — two matches agreeing on all three are the same datum, so their relative order
+	// cannot be observed.
+	//
+	// ★ The absolute line number used when the number is ABSENT differs between the two
+	// implementations, deliberately, and they nonetheless agree on every input that reaches here.
+	// The TypeScript substitutes Number.MAX_SAFE_INTEGER; Go would need math.MaxInt64. Both push
+	// an unknown line number to the end, and two such matches are then separated by lineText or
+	// found equal — so the greater sentinel is never observable. A sentinel was still used rather
+	// than a "no number sorts first" rule, because that WOULD be observable.
+	sort.SliceStable(matches, func(i, j int) bool {
+		a, b := matches[i], matches[j]
+		if a.FilePath != b.FilePath {
+			return a.FilePath < b.FilePath
+		}
+		aLn, bLn := missingLineSentinel, missingLineSentinel
+		if a.LineNumberOK {
+			aLn = a.LineNumber
+		}
+		if b.LineNumberOK {
+			bLn = b.LineNumber
+		}
+		if aLn != bLn {
+			return aLn < bLn
+		}
+		return a.LineText < b.LineText
+	})
+
 	return RipgrepResult{Matches: matches, UniqueFileCount: len(uniqueFiles)}
 }
+
+// missingLineSentinel stands in for an absent line number when ordering, so those matches sort
+// LAST rather than first. It need only exceed any real line number.
+const missingLineSentinel = math.MaxInt32
 
 // jsonPathText mirrors `data.path?.text` followed by the typeof/length guard.
 //

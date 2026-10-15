@@ -107,6 +107,34 @@ function parseRipgrepJson(stdoutText: string): { matches: RipgrepMatch[]; unique
     })
   }
 
+  // ── ★ SORT HERE, so the result is DETERMINED rather than merely whatever ripgrep emitted ──
+  //
+  // Measured before adding this: ripgrep's match SET is identical on every run, and only the
+  // EMISSION ORDER varies (it reports in worker-completion order, and --sort is not passed). So
+  // there was never a defined order to preserve — every run of the original already differed.
+  //
+  // That is why sorting is not a divergence from anything: it replaces undefined behaviour with
+  // defined behaviour, and it is what makes the truncation below meaningful. The alternative,
+  // relying on ripgrep's own --sort, would serialise the search and cost throughput for no
+  // benefit, since the same total order is available here for free.
+  //
+  // The key is (filePath, lineNumber, lineText). Path first because a reader scanning a result
+  // wants each file's hits together; line number next so a file reads top to bottom; lineText as
+  // the final term only so the order is TOTAL — two events that agree on all three are identical
+  // data, so their relative order cannot matter.
+  //
+  // The path comparison is a plain code-unit comparison, not localeCompare: the choice here must
+  // not depend on the host's locale (see the localization port for the measured case where
+  // localeCompare differs by locale).
+  matches.sort((left, right) => {
+    if (left.filePath !== right.filePath) return left.filePath < right.filePath ? -1 : 1
+    const leftLine = left.lineNumber ?? Number.MAX_SAFE_INTEGER
+    const rightLine = right.lineNumber ?? Number.MAX_SAFE_INTEGER
+    if (leftLine !== rightLine) return leftLine - rightLine
+    if (left.lineText !== right.lineText) return left.lineText < right.lineText ? -1 : 1
+    return 0
+  })
+
   return {
     matches,
     uniqueFileCount: uniqueFiles.size,
