@@ -1,3 +1,6 @@
+// Full-text search over the indexed game XML corpus. The query becomes a
+// conjunctive FTS5 phrase query, ranked with bm25 weights that favor file
+// paths over body text, capped at ten results.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 
@@ -46,6 +49,8 @@ export async function searchXml(query: string) {
   return { content: [{ type: 'text' as const, text }] }
 }
 
+// Quotes every whitespace-separated token as an FTS prefix phrase joined
+// with AND, so "harmony patch" only matches documents holding both terms.
 function buildFtsQuery(query: string): string {
   const cleaned = query.trim().replace(/"/g, ' ')
   if (!cleaned) return '""'

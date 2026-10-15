@@ -1,3 +1,6 @@
+// Hero lookup joined with the underlying troop record: one row covers the
+// hero's campaign identity (family, spouse, alive flag) plus the troop-level
+// presentation (name, culture, occupation).
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { resolveMaybeLocalizedText } from '../utils/localization'

@@ -1,3 +1,7 @@
+// Scans a live Bannerlord install for module health problems: dependency
+// cycles, duplicate shared DLLs, declared-but-missing SubModule DLLs, and
+// load-order conflicts. Reports a recommended load order plus per-module
+// details for the focused set.
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import {
   buildRecommendedLoadOrder,
@@ -36,6 +40,8 @@ export async function bannerlordDoctor(
   const loadOrder = buildRecommendedLoadOrder(modules)
   const allIssues = await collectDoctorIssues(modules)
   const focusedIds = new Set(focusedModules.map(moduleInfo => moduleInfo.moduleId))
+  // Keep issues that concern the focused modules directly, or that have no
+  // module attribution at all (install-wide findings).
   const issues = allIssues.filter(
     issue =>
       !issue.moduleId ||
@@ -63,6 +69,8 @@ export async function bannerlordDoctor(
   ]
 
   for (const moduleInfo of focusedModules) {
+    // Skip per-module noise for official modules unless the caller asked for
+    // details or focused on a single module.
     if (!includeOfficialDetails && moduleInfo.isOfficial && focusedModules.length > 1) {
       continue
     }
@@ -151,6 +159,8 @@ export async function bannerlordDoctor(
   return { content: [{ type: 'text' as const, text: report }] }
 }
 
+// Community framework DLLs are normal to find in several modules at once;
+// only non-framework duplicates should raise flags.
 function isSharedDependencyDll(fileName: string): boolean {
   const normalized = fileName.toLowerCase()
   return (

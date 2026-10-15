@@ -1,3 +1,6 @@
+// Builds or refreshes the local mod C# source index and reports the delta:
+// reindexed files, removed files, and the type/member counts that the
+// read/search tools consume.
 import { renderAiTextReport } from '../utils/ai-text'
 import { ensureLocalModSourceIndex } from '../utils/local-mod-csharp-index'
 

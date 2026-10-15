@@ -1,3 +1,6 @@
+// Perk lookup. Perk ids are case-sensitive in game data, so the query
+// matches exactly or case-insensitively in one pass. The alternative-perk
+// reference resolves to a display name where one exists.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { resolveMaybeLocalizedText } from '../utils/localization'

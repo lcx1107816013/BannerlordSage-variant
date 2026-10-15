@@ -1,3 +1,7 @@
+// Clan/faction lookup. Results order noble clans first, then minor
+// factions, then the rest, with file path as the tiebreaker. Framework
+// references (culture, owner, home settlement, super-faction) resolve to
+// display labels inline.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import {

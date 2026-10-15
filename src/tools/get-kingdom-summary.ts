@@ -1,3 +1,5 @@
+// Kingdom lookup with resolved framework references: culture, ruler, home
+// settlement, and the kingdom's active policies as display labels.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import {

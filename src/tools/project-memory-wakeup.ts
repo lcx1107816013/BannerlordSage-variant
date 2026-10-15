@@ -1,3 +1,5 @@
+// Session-start recall: pulls the highest-importance active memories for a
+// workspace so an agent can load prior context before starting new work.
 import { getProjectMemoryWakeup, renderProjectMemoryReport } from '../utils/project-memory'
 
 export async function projectMemoryWakeup(workspace?: string, limit: number = 8) {

@@ -1,3 +1,6 @@
+// XSLT patch generator: wraps an XPath-targeted insert/replace/delete into
+// a full stylesheet with an identity transform, so the game importer applies
+// the patch while leaving every other node untouched.
 export async function generateXsltPatch(
   targetXPath: string,
   operation: 'insert' | 'replace' | 'delete',
@@ -31,6 +34,7 @@ function buildXsltOperation(
   fragment: string
 ): string {
   if (operation === 'delete') {
+    // An empty template body drops the matched node entirely.
     return `  <!-- Delete the target node -->
   <xsl:template match="${targetXPath}" />
 `

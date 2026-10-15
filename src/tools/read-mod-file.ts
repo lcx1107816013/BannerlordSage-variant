@@ -1,3 +1,5 @@
+// Reads a slice of a file from the mod source workspace. Paging and
+// sandboxing mirror readFile; only the root directory differs.
 import { PathSandbox } from '../utils/path-sandbox'
 import { ensureModSourceDir } from '../utils/mod-source'
 import { readFile } from './read-file'

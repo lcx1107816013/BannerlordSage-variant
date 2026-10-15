@@ -1,3 +1,7 @@
+// Harmony patch scaffold generator. Looks up the target type and method in
+// the C# AST index, then emits a ready-to-edit Prefix/Postfix template with
+// overload hints so the caller knows whether an instance parameter or a
+// type array is needed.
 import { getDb } from '../utils/db'
 
 type MethodRow = {
@@ -40,6 +44,8 @@ export async function generateHarmonyPatch(className: string, methodName: string
       $methodName: methodName,
     }) as MethodRow[]
 
+  // Instance methods need __instance injected as the first patch parameter;
+  // with several overloads we can't tell statically, so leave a marker comment.
   const instanceParamHint =
     methods.length === 1 && methods[0].isStatic === 0
       ? `${className} __instance, `
@@ -95,6 +101,9 @@ namespace YourModNamespace.Patches
   return { content: [{ type: 'text' as const, text: patchTemplate }] }
 }
 
+// Extracts the parameter type list from a C# method signature and renders it
+// as a HarmonyPatch type array. Handles nested generics/parens/brackets so
+// commas inside type arguments don't split parameters.
 function buildTypeHint(signature: string): string {
   const start = signature.indexOf('(')
   const end = signature.lastIndexOf(')')
@@ -138,6 +147,7 @@ function splitTopLevel(input: string): string[] {
   return parts
 }
 
+// "ref Foo bar" / "params int[] xs" / "Foo bar = default" -> "Foo" / "int[]".
 function extractTypeFromParam(param: string): string {
   const withoutDefault = param.split('=').shift()?.trim() || ''
   const cleaned = withoutDefault.replace(/^\s*(ref|out|in|params|this|scoped|readonly)\s+/g, '')

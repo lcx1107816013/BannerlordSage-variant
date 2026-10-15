@@ -1,3 +1,5 @@
+// Skill lookup with its attribute modifiers rendered as compact
+// code|modification|value rows. Documentation text passes through verbatim.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 

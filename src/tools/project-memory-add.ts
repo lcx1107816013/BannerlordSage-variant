@@ -1,3 +1,6 @@
+// Persists a durable project memory for later sessions to recall. Empty
+// text is rejected up front; everything else flows through the shared
+// project-memory store and returns as a one-row report.
 import { addProjectMemory, renderProjectMemoryReport } from '../utils/project-memory'
 
 export async function projectMemoryAdd(

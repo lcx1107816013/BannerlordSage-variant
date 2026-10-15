@@ -1,3 +1,6 @@
+// Resolves a Bannerlord localization token ({=ID}Fallback Text) against the
+// XML language index and the C# source index: every language the token
+// appears in, plus up to ten source-side usages.
 import { renderAiTextReport } from '../utils/ai-text'
 import { parseLocalizationToken, resolveLocalizationDetails } from '../utils/localization'
 
@@ -44,6 +47,7 @@ export async function resolveLocalization(text: string, languages?: string[]) {
     },
   ]
 
+  // Bounded output: past ten source hits only the overflow count is noted.
   if (details.sourceEntries.length > 10) {
     blocks[0].fields?.push({ key: 'source_entries_omitted', value: details.sourceEntries.length - 10 })
   }

@@ -1,3 +1,5 @@
+// Keyword search over stored project memories with the same filter set as
+// the recent list. An empty query is refused instead of matching everything.
 import { renderProjectMemoryReport, searchProjectMemories } from '../utils/project-memory'
 
 export async function projectMemorySearch(

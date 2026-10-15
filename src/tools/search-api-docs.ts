@@ -1,3 +1,7 @@
+// FTS5 search over the indexed decompiled-API docs, versioned against the
+// installed game. Falls back to a LIKE scan when the FTS query matches
+// nothing (short tokens, symbols), and surfaces version-resolution details
+// so stale-index situations are visible instead of silent.
 import { databaseHasTable, getDb } from '../utils/db'
 import { getGamePaths } from '../utils/env'
 import { renderAiTextReport, type AiTextBlock } from '../utils/ai-text'
@@ -85,6 +89,8 @@ export async function searchApiDocs(
       $limit: clampLimit(limit),
     })
 
+  // FTS5 phrase matching misses short or symbol-heavy tokens; the LIKE path
+  // is the safety net, ordered exact > prefix > anything.
   const effectiveRows = rows.length > 0
     ? rows
     : db

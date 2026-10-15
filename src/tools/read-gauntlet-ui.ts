@@ -1,3 +1,8 @@
+// Gauntlet UI file inspector: finds an XML UI file by stem (prefix matching
+// with a preference for gui/prefabs paths), then extracts the data sources
+// and click commands so an agent can reason about the UI without opening
+// the game. Results are cached per sandbox root and invalidated when the
+// runtime revision changes (re-setup, game update).
 import { Glob } from 'bun'
 import { basename } from 'path'
 import { renderAiTextReport, type AiTextBlock } from '../utils/ai-text'
@@ -81,6 +86,8 @@ async function resolveUiPath(sandbox: PathSandbox, uiFileName: string): Promise<
   const candidates = await getUiIndex(sandbox.basePath)
   const normalizedQuery = uiFileName.toLowerCase()
 
+  // Exact stem wins; otherwise match by stem prefix, then rank by how
+  // deep inside a GUI tree the file lives.
   const exactMatches = candidates.filter(path => getXmlStem(path) === normalizedQuery)
   const prefixMatches =
     exactMatches.length > 0

@@ -1,3 +1,6 @@
+// Item and crafting-piece lookup. One entity id can cover several rows
+// (item vs crafted piece vs crafting piece), so the entity kind appears in
+// the block header and the stat columns cover all three shapes.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { resolveMaybeLocalizedText } from '../utils/localization'

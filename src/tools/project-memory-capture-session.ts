@@ -1,3 +1,6 @@
+// Captures a whole working session as a set of durable memories: decisions,
+// pitfalls, preferences, todos, and notes each become their own row under
+// one shared topic/source. A session with nothing durable is refused.
 import { captureProjectMemorySession, renderProjectMemoryReport } from '../utils/project-memory'
 
 export async function projectMemoryCaptureSession(

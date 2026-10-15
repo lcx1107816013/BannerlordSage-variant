@@ -1,3 +1,5 @@
+// Culture lookup. Rows with the largest name pools (most useful for name
+// generation) and an actual description sort first.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { formatReferenceLabel, lookupPolicyName } from '../utils/bannerlord-entity-resolver'

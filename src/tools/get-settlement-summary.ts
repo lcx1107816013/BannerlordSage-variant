@@ -1,3 +1,6 @@
+// Settlement lookup (towns, castles, villages). Ownership is derived: the
+// bound village inherits its parent settlement's owner when it has none of
+// its own, and clan owners are walked up to their kingdom.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import {

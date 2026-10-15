@@ -1,3 +1,5 @@
+// Walks a troop's upgrade chain: resolves one character id and lists the
+// ids it can promote into, next to the troop's identity and classification.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { resolveMaybeLocalizedText } from '../utils/localization'

@@ -1,3 +1,6 @@
+// Paged file reader for the workspace sandbox. Every response wraps the
+// requested slice in an ai-text report so the caller always knows which
+// lines came back and whether more content follows.
 import { PathSandbox } from '../utils/path-sandbox'
 import { renderAiTextReport } from '../utils/ai-text'
 import { readTextFileSlice } from '../utils/text-file-cache'

@@ -1,3 +1,6 @@
+// Policy lookup. Ids go through the normalizer first (game data uses
+// several spellings for the same policy); the normalized id is echoed back
+// as a footnote so callers can see the mapping that was applied.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import {

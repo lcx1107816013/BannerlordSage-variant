@@ -1,3 +1,6 @@
+// Sandbox-aware directory listing. Directories carry a trailing slash so
+// plain-text output distinguishes them from files; output is sorted for
+// determinism.
 import { readdir } from 'node:fs/promises'
 import { PathSandbox } from '../utils/path-sandbox'
 

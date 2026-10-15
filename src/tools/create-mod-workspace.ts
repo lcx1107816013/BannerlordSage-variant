@@ -1,3 +1,7 @@
+// Scaffolds a compilable Bannerlord mod workspace: SubModule.xml, csproj
+// with references to the local game DLLs, C# entry class, optional campaign
+// behavior and Harmony patch, plus the language-file trio. Community
+// framework wiring degrades gracefully with warnings when modules are absent.
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { type AiTextBlock, renderAiTextReport } from '../utils/ai-text'
@@ -102,6 +106,9 @@ export async function createModWorkspace(options: CreateModWorkspaceOptions) {
     addProjectReference(join(resolvedGameDir, 'bin', 'Win64_Shipping_Client', fileName))
   }
 
+  // Community framework flags cascade upward: MCM needs ButterLib and
+  // UIExtenderEx, and both need Harmony. Everything optional degrades to a
+  // warning instead of failing the scaffold.
   const needMcm = options.includeMcm ?? false
   const needButterLib = (options.includeButterLib ?? false) || needMcm
   const needUiExtenderEx = (options.includeUiExtenderEx ?? false) || needMcm
@@ -137,13 +144,13 @@ export async function createModWorkspace(options: CreateModWorkspaceOptions) {
 
   if ((options.includeButterLib ?? false) && butterLibModule && harmonyModule) {
     featureFlags.butterLib = true
-  } else if (options.includeButterLib ?? false) {
+  } else if ((options.includeButterLib ?? false)) {
     warnings.push('ButterLib support was requested but required local modules were not available. ButterLib wiring was skipped.')
   }
 
   if ((options.includeUiExtenderEx ?? false) && uiExtenderExModule && harmonyModule) {
     featureFlags.uiExtenderEx = true
-  } else if (options.includeUiExtenderEx ?? false) {
+  } else if ((options.includeUiExtenderEx ?? false)) {
     warnings.push(
       'UIExtenderEx support was requested but required local modules were not available. UIExtenderEx wiring was skipped.'
     )
@@ -688,6 +695,8 @@ internal static class HeroCanBecomePrisonerPatch
 `
 }
 
+// Official modules must load before this mod. Sandbox resolves first; a few
+// ids have historical aliases, so fall through candidates in order.
 function resolveOfficialDependencies(
   modulesById: Map<string, BannerlordModuleInfo>,
   includeCampaignBehavior: boolean,
@@ -822,6 +831,7 @@ function normalizeProjectVersion(moduleVersion: string): string {
   return moduleVersion.replace(/^v/i, '')
 }
 
+// SubModule.xml wants a range-compatible version string; csproj wants bare.
 function toOfficialVersionRange(version: string | null): string | null {
   if (!version) return null
   if (version.includes('*')) return version
@@ -851,6 +861,8 @@ function escapeXml(value: string): string {
     .replaceAll("'", '&apos;')
 }
 
+// Refuse to write into an existing non-empty directory so scaffolding can
+// never clobber someone's mod.
 async function ensureDirectoryIsWritable(path: string): Promise<void> {
   if (!(await pathExists(path))) {
     return

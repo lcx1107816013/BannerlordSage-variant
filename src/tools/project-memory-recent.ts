@@ -1,3 +1,6 @@
+// Lists recently stored project memories, newest first, optionally filtered
+// by workspace, topic, or kind. Invalidated memories stay hidden unless
+// includeInactive is set.
 import { listRecentProjectMemories, renderProjectMemoryReport } from '../utils/project-memory'
 
 export async function projectMemoryRecent(
