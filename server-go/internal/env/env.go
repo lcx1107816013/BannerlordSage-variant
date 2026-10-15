@@ -20,6 +20,10 @@ import (
 const DefaultGameID = "bannerlord"
 
 // GamePaths mirrors getGamePaths() in src/utils/env.ts.
+//
+// The field set is asserted against the TypeScript's own key set by the parity suite:
+// a port that silently drops a field would otherwise pass a value-only comparison,
+// which is exactly how ReportsPath's two report paths stayed missing.
 type GamePaths struct {
 	GameID            string
 	Root              string
@@ -33,11 +37,53 @@ type GamePaths struct {
 	MemoryDBPath      string
 	SetupStatePath    string
 	CSharpAstDumpPath string
+	// The TypeScript also returns these two; they were absent from the port.
+	XMLParseReportPath         string
+	XMLParseReportMarkdownPath string
 }
 
-// NormalizeGameId mirrors normalizeGameId(): trim+lowercase, empty -> default.
+// jsWhitespace is the ECMAScript WhiteSpace + LineTerminator set.
+//
+// The TypeScript is `gameId?.trim().toLowerCase()`, and JS trim() is NOT Go's
+// strings.TrimSpace: they trim different sets, in BOTH directions.
+//
+//	U+FEFF BOM/ZWNBSP : JS trims it, Go TrimSpace does NOT   (Go IsSpace=false)
+//	U+0085 NEL        : Go TrimSpace trims it, JS does NOT   (Go IsSpace=true)
+//
+// Measured, and it matters here: `normalizeGameId("\ufeffX")` must be "x" but
+// strings.TrimSpace leaves the BOM and yields "\ufeffx". A BOM-prefixed game id is
+// plausible (read from a file), so this is not a theoretical case.
+const jsWhitespace = "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0" +
+	"\u1680" +
+	"\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a" +
+	"\u2028\u2029\u202f\u205f\u3000\ufeff"
+
+// jsTrim mirrors JavaScript's String.prototype.trim().
+func jsTrim(s string) string {
+	return strings.Trim(s, jsWhitespace)
+}
+
+// NormalizeGameID mirrors normalizeGameId(): trim + lowercase, empty -> default.
+//
+// ★ DECLARED DIVERGENCE — Unicode case folding.
+//
+// JavaScript's toLowerCase() implements the Unicode SpecialCasing table; Go's
+// strings.ToLower implements only SIMPLE case mapping. The two disagree on
+// non-ASCII input, measured:
+//
+//	input        TypeScript      Go
+//	"İSTANBUL"   "i̇stanbul"      "istanbul"     (U+0130 expands to i + U+0307)
+//	"ΣΊΣΥΦΟΣ"     "σίσυφος"       "σίσυφοσ"      (final sigma, U+03C2)
+//
+// This is NOT reproduced, deliberately. A game id is a slug ("bannerlord",
+// "other-game"), so the divergent inputs are outside the function's real domain, and
+// reproducing SpecialCasing would mean embedding a casing table to handle inputs that
+// cannot occur. The divergence is recorded in the parity fixtures and asserted there
+// rather than left implicit, so it cannot silently widen.
+//
+// Everything ASCII — and therefore every real game id — matches exactly.
 func NormalizeGameID(gameID string) string {
-	normalized := strings.ToLower(strings.TrimSpace(gameID))
+	normalized := strings.ToLower(jsTrim(gameID))
 	if normalized == "" {
 		return DefaultGameID
 	}
@@ -121,5 +167,8 @@ func GetGamePaths(gameID string) GamePaths {
 		MemoryDBPath:      filepath.Join(gameDistPath, id+"-memory.db"),
 		SetupStatePath:    filepath.Join(gameDistPath, "setup-state.json"),
 		CSharpAstDumpPath: filepath.Join(gameDistPath, "csharp-index.json"),
+		// These two live under reportsPath, not gameDistPath.
+		XMLParseReportPath:         filepath.Join(reportsPath, "xml-parse-report.json"),
+		XMLParseReportMarkdownPath: filepath.Join(reportsPath, "xml-parse-report.md"),
 	}
 }
