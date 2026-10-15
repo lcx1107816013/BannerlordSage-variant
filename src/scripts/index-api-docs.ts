@@ -318,8 +318,39 @@ function setApiMeta(db: Database, key: string, value: string): void {
   })
 }
 
+// The official API docs site is (a) fronted by a WAF that answers 403 to requests with no
+// User-Agent, and (b) drops connections under the burst this indexer generates — an
+// unretried run fails with ECONNRESET partway through. Both are properties of the remote
+// site, not of this code, and both are handled here so a rebuild is reproducible instead of
+// a matter of luck.
+//
+// The retry is bounded and only on transport-level failures; an HTTP status that the caller
+// is expected to interpret (404 in fetchTextIfPresent) is left to the caller.
+const API_DOCS_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+async function fetchWithRetry(url: string, attempts = 4): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url, { headers: { 'User-Agent': API_DOCS_USER_AGENT } })
+      // Retry a 403 once more as well: the WAF intermittently rejects a request that the
+      // same URL accepts moments later. 404 and other statuses are meaningful to callers.
+      if (response.status === 403 && attempt < attempts) {
+        lastError = new Error(`HTTP 403 from ${url}`)
+      } else {
+        return response
+      }
+    } catch (error) {
+      lastError = error
+    }
+    await new Promise(resolve => setTimeout(resolve, 250 * attempt * attempt))
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url)
+  const response = await fetchWithRetry(url)
   if (!response.ok) {
     throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`)
   }
@@ -328,7 +359,7 @@ async function fetchText(url: string): Promise<string> {
 }
 
 async function fetchTextIfPresent(url: string): Promise<string | undefined> {
-  const response = await fetch(url)
+  const response = await fetchWithRetry(url)
   if (response.status === 404) {
     return undefined
   }

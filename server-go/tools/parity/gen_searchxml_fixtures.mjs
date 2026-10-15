@@ -23,6 +23,7 @@
 // Usage: bun run server-go/tools/parity/gen_searchxml_fixtures.mjs
 
 import { Database } from 'bun:sqlite'
+import { removeOwnFixtureOrRefuse, markAsFixture } from './fixture_guard.mjs'
 import { writeFileSync, mkdirSync, rmSync, existsSync, copyFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,7 +55,8 @@ const fixtureDbDir = join(here, 'fixtures')
 mkdirSync(fixtureDbDir, { recursive: true })
 const dbFile = 'searchxml.db'
 const dbPath = join(fixtureDbDir, dbFile)
-rmSync(dbPath, { force: true })
+// Refuses rather than deleting anything this harness did not mark. See fixture_guard.mjs.
+removeOwnFixtureOrRefuse(dbPath, 'gen_searchxml_fixtures.mjs')
 
 // A scratch directory under dist/ for the TypeScript to resolve. This is a SYNTHETIC id, so
 // it is a fresh directory rather than the real game's.
@@ -66,11 +68,10 @@ const resolvePath = join(resolveDir, `${gameId}.db`)
 // Defence 2: refuse to proceed if anything already occupies the scratch path that this
 // script did not create. An index database has tables this fixture never writes, so its
 // presence means the path is not ours to delete.
-if (existsSync(resolvePath)) {
-    console.error(`REFUSING TO RUN: ${resolvePath} already exists and was not created by this script.`)
-    console.error('A fixture generator must not overwrite data it did not create.')
-    process.exit(3)
-}
+// The scratch path is under a synthetic game id, so it cannot be the real index; the guard
+// is kept as a second, independent check. It refuses rather than deletes, because a path is
+// ours only if we created it.
+removeOwnFixtureOrRefuse(resolvePath, 'gen_searchxml_fixtures.mjs')
 
 // The tool resolves the db through env.ts, which reads this.
 process.env.BANNERSAGE_GAME = gameId
@@ -86,6 +87,8 @@ db.run(`
     tokenize = 'unicode61',
     prefix = '2 3 4'
   )`)
+// Stamp it as ours so a later run may delete it. Without this the guard above refuses.
+markAsFixture(db, 'gen_searchxml_fixtures.mjs')
 
 const corpus = [
     // gauntlet appears in content; Native in moduleName
@@ -183,7 +186,7 @@ const fixtures = {
 
 writeFileSync(join(here, 'searchxml_fixtures.json'), JSON.stringify(fixtures, null, 2) + '\n', 'utf8')
 
-console.log('wrote searchxml_fixtures.json + dist/games/bannerlord/bannerlord.db')
+console.log(`wrote searchxml_fixtures.json + fixtures/${dbFile}`)
 console.log(`  corpus rows : ${corpus.length}`)
 console.log(`  queries     : ${results.length} (${results.filter((r) => r.ok).length} rendered)`)
 console.log()

@@ -24,6 +24,7 @@ import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pathToFileURL } from 'node:url'
+import { removeOwnFixtureOrRefuse, markAsFixture } from './fixture_guard.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(here, '..', '..', '..')
@@ -37,7 +38,10 @@ const { databaseHasTable, databaseHasColumns, databaseTableRowCount, databaseTab
 const fixturesDir = join(here, 'fixtures')
 mkdirSync(fixturesDir, { recursive: true })
 const dbPath = join(fixturesDir, 'probe.db')
-if (existsSync(dbPath)) rmSync(dbPath)
+// Refuses rather than deleting anything this harness did not mark. Note this generator was
+// ALREADY safe (it writes only to an explicit path it owns), and the guard is added so that
+// safety is provable instead of assumed. See fixture_guard.mjs and ledger F19.
+removeOwnFixtureOrRefuse(dbPath, 'gen_store_fixtures.mjs')
 
 // ── build the probe database ────────────────────────────────────────────────
 const db = new Database(dbPath, { create: true })
@@ -58,6 +62,8 @@ db.run(`
     c TEXT
   )`)
 db.run(`CREATE VIEW items_view AS SELECT id, name FROM items`)
+// Stamp it as ours so a later run may delete it.
+markAsFixture(db, 'gen_store_fixtures.mjs')
 db.run(`CREATE TABLE "weird""table" (id TEXT PRIMARY KEY, val TEXT)`)
 
 const insertItem = db.prepare(
