@@ -67,3 +67,20 @@ console.log(`workspace db: ${workspace.dbPath}`)
 console.log(`tables before: ${existing.length === 0 ? '(none)' : existing.join(', ')}`)
 console.log(`tables after : ${after.join(', ')}`)
 console.log('gen_modsourceindex_fixtures.mjs can now run its DELETE step.')
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-17 UPDATE: the generator this script works around has been FIXED.
+//
+// `gen_modsourceindex_fixtures.mjs` used to DELETE from the three tables BEFORE its
+// `CREATE TABLE IF NOT EXISTS` statements, which made it depend on the tables already
+// existing. Since the workspace database lives under dist/mod-sources/ (excluded by
+// .gitignore wholesale, so absent on a fresh clone), the generator died on its first
+// DELETE anywhere the corpus had not already been created once.
+//
+// The generator now emits DDL first and clears the tables afterwards. Verified by
+// deleting dist/mod-sources entirely and re-running: exit 0, 9 cases, byte-identical to
+// the frozen golden copy, and idempotent across two consecutive runs.
+//
+// This script is KEPT as a fallback for the case it still covers: a workspace whose
+// database exists but is in an unknown state (for example left behind by an interrupted
+// run). It is no longer required for a fresh clone.

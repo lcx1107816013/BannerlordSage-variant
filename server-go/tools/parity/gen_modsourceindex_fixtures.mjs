@@ -65,15 +65,19 @@ const workspace = await resolveModSourceWorkspace(corpusRoot)
 console.log('workspace cache at:', workspace.dbPath)
 
 const db = new Database(workspace.dbPath)
-// ★ IDEMPOTENCY: this generator ran before and the workspace database SURVIVES between
-//   runs (resolveModSourceWorkspace creates but never clears it), so plain INSERTs
-//   double the rows on every regeneration — measured: 8 csharp_types rows after two
-//   runs, while the fixture text still said 3 from the first. The reader's disambiguation
-//   then rendered five matches where two belonged. Deleting the three tables first makes
-//   the corpus identical on every run.
-db.run(`DELETE FROM csharp_types`)
-db.run(`DELETE FROM csharp_methods`)
-db.run(`DELETE FROM csharp_files`)
+// ★ IDEMPOTENCY, AND WHY THE DDL COMES FIRST.
+//
+// This generator ran before and the workspace database SURVIVES between runs
+// (resolveModSourceWorkspace creates but never clears it), so plain INSERTs double the
+// rows on every regeneration — measured: 8 csharp_types rows after two runs, while the
+// fixture text still said 3 from the first. The reader's disambiguation then rendered
+// five matches where two belonged.
+//
+// The first fix DELETEd before CREATE, which was wrong in the other direction: it made
+// the generator depend on the tables already existing. On a fresh clone there is no
+// database at all — the path lives under dist/mod-sources/, which .gitignore excludes
+// wholesale — so the run died on the first DELETE and the generator could only ever work
+// on the machine that had already run it once. DDL first, NULL-safety second:
 db.run(`CREATE TABLE IF NOT EXISTS csharp_types (
   typeName TEXT, fullName TEXT, namespaceName TEXT, containingType TEXT,
   filePath TEXT, startLine INTEGER, endLine INTEGER, typeKind TEXT,
@@ -87,6 +91,11 @@ db.run(`CREATE TABLE IF NOT EXISTS csharp_methods (
 db.run(`CREATE TABLE IF NOT EXISTS csharp_files (
   filePath TEXT PRIMARY KEY, fileSize INTEGER, fileMtimeMs REAL
 )`)
+// Now that every table is guaranteed to exist, clear them so a regeneration cannot
+// accumulate rows. This is the half that makes the corpus identical on every run.
+db.run(`DELETE FROM csharp_types`)
+db.run(`DELETE FROM csharp_methods`)
+db.run(`DELETE FROM csharp_files`)
 const insertType = db.prepare(`INSERT INTO csharp_types (typeName, fullName, namespaceName, containingType, filePath, startLine, endLine, typeKind, accessibility, modifiers) VALUES (?,?,?,?,?,?,?,?,?,?)`)
 insertType.run('SubModule', 'MyMod.SubModule', 'MyMod', null, 'SubModule.cs', 2, 4, 'class', 'public', '')
 insertType.run('SubModule', 'MyMod.SubModule#inner', 'MyMod', 'SubModule', 'Helpers.cs', 2, 4, 'class', 'internal', '')
