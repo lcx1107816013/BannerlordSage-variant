@@ -1,19 +1,19 @@
-// Package runtimerev ports the part of src/utils/runtime-revision.ts that this server
-// calls: the path-keyed freshness check.
+// Package runtimerev ports src/utils/runtime-revision.ts.
 //
 // The TypeScript keeps two observed-revision maps — one keyed by GAME ID
-// (ensureRuntimeRevisionFresh) and one keyed by VERSION-FILE PATH (ensureRevisionFresh).
-// Only the path-keyed one is reachable from read-gauntlet-ui.ts, so only it is ported. The
-// game-keyed map, the write path (writeRuntimeRevision / writeRevisionFile) and the
-// read-only accessor (readRuntimeRevision) are deliberately absent rather than guessed;
-// whoever ports src/utils/db.ts will need ensureRuntimeRevisionFresh(gameId) and should add
-// it together with that caller.
+// (ensureRuntimeRevisionFresh) and one keyed by VERSION-FILE PATH (ensureRevisionFresh) —
+// plus a write path that updates the path-keyed map and a read-only accessor. The
+// path-keyed half was ported first (read-gauntlet-ui.ts was its only caller); the game-keyed
+// half arrives with this server skeleton, because src/utils/db.ts's getDb calls
+// ensureRuntimeRevisionFresh(gameId) on every open and registers closeDb as an invalidator,
+// and internal/store is the Go mirror of that module.
 package runtimerev
 
 import (
 	"os"
 	"sync"
 
+	"blore/internal/env"
 	"blore/internal/report"
 )
 
@@ -26,6 +26,10 @@ var (
 	// holding an empty revision" are different states, which is why every lookup below
 	// uses the two-value form.
 	observedRevisionByPath = map[string]string{}
+	// observedRevisionByGame mirrors observedRevisionByGame, keyed by the NORMALISED game
+	// id (normalizeGameId runs before the map sees the key, so 'BANNERLORD' and
+	// 'bannerlord' are one observation, and '' normalises to the default id too).
+	observedRevisionByGame = map[string]string{}
 )
 
 // RegisterInvalidator mirrors registerRuntimeInvalidator. The TypeScript also returns an
@@ -36,15 +40,36 @@ func RegisterInvalidator(invalidator func()) {
 	mu.Unlock()
 }
 
+// EnsureRuntimeRevisionFresh mirrors ensureRuntimeRevisionFresh(gameId): the observation key
+// is the NORMALISED game id, while the revision file read is that game's Version.txt.
+//
+// ★ TWO GAMES CAN SHARE ONE OBSERVATION KEY BY CONSTRUCTION — this port has one game
+// profile, so the key is always the default id today — and one game id CANNOT collide with
+// a path key here because the path key is an absolute filesystem path while the game key is
+// a slug ('bannerlord'). The TypeScript keeps the same two maps with the same key spaces;
+// a path that happened to equal a game id would observe twice, which is the original's
+// behaviour too.
+func EnsureRuntimeRevisionFresh(gameID string) bool {
+	normalized := env.NormalizeGameID(gameID)
+	return ensureRevisionFreshForKey(normalized, env.GetGamePaths(normalized).VersionPath, observedRevisionByGame)
+}
+
+// ReadRuntimeRevision mirrors readRuntimeRevision(gameId): the raw file content, '' when
+// absent or unreadable. It does NOT touch the observation maps — reading is not observing,
+// so it cannot accidentally "seed" a key and suppress a later change notification.
+func ReadRuntimeRevision(gameID string) string {
+	return readRevisionFile(env.GetGamePaths(gameID).VersionPath)
+}
+
 // EnsureFresh mirrors ensureRevisionFresh(versionPath).
 //
-// ★ IT IS THIS ENTRY POINT, NOT ensureRuntimeRevisionFresh(), THAT THE TOOL REACHES.
-// read-gauntlet-ui.ts calls `ensureRuntimeRevisionFresh()` with no argument, and
-// runtime-revision.ts:17 normalises an absent id to the DEFAULT game id ('bannerlord')
-// *before* passing it to getGamePaths — so getGamePaths' own `= getActiveGameId()` default
-// parameter never fires on this path. The version file watched by the tool is therefore
-// always the default game's, even when BANNERSAGE_GAME names another game. Ported as
-// found; see the port report.
+// ★ IT IS THIS ENTRYPOINT, NOT EnsureRuntimeRevisionFresh() , THAT read-gauntlet-ui's
+// TypeScript reaches. read-gauntlet-ui.ts calls `ensureRuntimeRevisionFresh()` with no
+// argument, and runtime-revision.ts normalises an absent id to the DEFAULT game id
+// ('bannerlord') *before* passing it to getGamePaths — so getGamePaths' own
+// `= getActiveGameId()` default parameter never fires on this path. The version file watched
+// by the tool is therefore always the default game's, even when BANNERSAGE_GAME names
+// another game. Ported as found; see the port report.
 //
 // The observation key IS the version path string as given (ensureRevisionFresh passes
 // versionPath as both arguments), so two spellings of one file are two independent
@@ -55,12 +80,19 @@ func RegisterInvalidator(invalidator func()) {
 // what makes "the file appeared" and "the file was rewritten" both count as changes while
 // "the tool ran for the first time" does not.
 func EnsureFresh(versionPath string) bool {
+	return ensureRevisionFreshForKey(versionPath, versionPath, observedRevisionByPath)
+}
+
+// ensureRevisionFreshForKey mirrors ensureRevisionFreshForKey: the one loop body both
+// public entry points share. It is the same five steps in the same order as the TypeScript —
+// read, look up, seed-or-compare, store, fire — so both key spaces behave identically.
+func ensureRevisionFreshForKey(observationKey, versionPath string, observedRevisions map[string]string) bool {
 	revision := readRevisionFile(versionPath)
 
 	mu.Lock()
-	previous, observed := observedRevisionByPath[versionPath]
+	previous, observed := observedRevisions[observationKey]
 	if !observed {
-		observedRevisionByPath[versionPath] = revision
+		observedRevisions[observationKey] = revision
 		mu.Unlock()
 		return false
 	}
@@ -68,7 +100,7 @@ func EnsureFresh(versionPath string) bool {
 		mu.Unlock()
 		return false
 	}
-	observedRevisionByPath[versionPath] = revision
+	observedRevisions[observationKey] = revision
 	// Snapshot, then release before firing. The invalidators clear OTHER packages'
 	// caches, so holding this lock across them would invite a deadlock (this lock, then
 	// that package's lock, while that package's caller holds its lock and waits here).
