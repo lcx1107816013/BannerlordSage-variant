@@ -96,8 +96,30 @@ func readOnly() *mcp.ToolAnnotations {
 // writable mirrors the write tools' `{ readOnlyHint: false, openWorldHint: false }`.
 func writable() *mcp.ToolAnnotations {
 	f := false
-	r := false
-	return &mcp.ToolAnnotations{ReadOnlyHint: r, OpenWorldHint: &f}
+	return &mcp.ToolAnnotations{ReadOnlyHint: false, OpenWorldHint: &f}
+}
+
+// writableIdempotent mirrors
+// `{ readOnlyHint: false, idempotentHint: true, openWorldHint: false }` — the TS
+// annotations on bannerlord_editor_save_scene. writable() leaves IdempotentHint at its
+// zero value, so the true case needs its own constructor; the surface classifier
+// reported the omission on that tool.
+func writableIdempotent() *mcp.ToolAnnotations {
+	f := false
+	return &mcp.ToolAnnotations{ReadOnlyHint: false, IdempotentHint: true, OpenWorldHint: &f}
+}
+
+// writableDestructiveFalseIdempotent mirrors
+// `{ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }`
+// — the TS annotations on bannerlord_editor_apply_layout.
+func writableDestructiveFalseIdempotent() *mcp.ToolAnnotations {
+	f := false
+	return &mcp.ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: &f,
+		IdempotentHint:  true,
+		OpenWorldHint:   &f,
+	}
 }
 
 // registerAll registers the whole surface. The order matches src/server.ts's call order

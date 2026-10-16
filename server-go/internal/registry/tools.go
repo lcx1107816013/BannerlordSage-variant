@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"blore/internal/env"
 	"blore/internal/toolnaming"
 )
 
@@ -234,7 +235,7 @@ func registerReadFile(server *mcp.Server, deps *Deps) {
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path": prop("string", "Path relative to dist/games/<game>/assets, e.g. Xmls/Modules/Native/ModuleData/crafting_pieces.xml."),
+			"path": prop("string", "Path relative to dist/games/"+env.ActiveGameID()+"/assets, e.g. Xmls/Modules/Native/ModuleData/crafting_pieces.xml."),
 			"startLine": propWithDefault("number", 0,
 				"Zero-based start line."),
 			"lineCount": propWithDefault("number", 400, "Max lines."),
@@ -254,7 +255,7 @@ func registerListDirectory(server *mcp.Server, deps *Deps) {
 		},
 	}
 	register(server, "list_directory", "List Indexed Directory",
-		"Explore what has been imported into dist/games/<game>/assets before opening a file.",
+		"Explore what has been imported into dist/games/"+env.ActiveGameID()+"/assets before opening a file.",
 		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("list_directory"))))
 }
 
@@ -276,7 +277,7 @@ func registerSearchKnowledge(server *mcp.Server, deps *Deps) {
 		"type": "object",
 		"properties": map[string]any{
 			"query": prop("string", "Natural-language request, e.g. \"我要做一个招募俘虏的 mod\"."),
-			"intent": enumProp([]string{"auto", "make_mod", "api", "docs", "source"},
+			"intent": enumPropDefault([]string{"auto", "make_mod", "api", "docs", "source"}, "auto",
 				"Routing hint; leave auto."),
 			"limit": propWithDefault("number", 5, "Max results per source."),
 		},
@@ -292,7 +293,7 @@ func registerSearchDocs(server *mcp.Server, deps *Deps) {
 		"type": "object",
 		"properties": map[string]any{
 			"query": prop("string", "Keywords, e.g. Gauntlet UI or SubModule."),
-			"source": enumProp([]string{"own", "all", "official", "community"},
+			"source": enumPropDefault([]string{"own", "all", "official", "community"}, "own",
 				"Docs source filter; own = our curated knowledge base."),
 			"limit": propWithDefault("number", 8, "Max matches."),
 		},

@@ -39,6 +39,34 @@ func propWithDefault(typ string, def any, description string) map[string]any {
 	return map[string]any{"type": typ, "default": def, "description": description}
 }
 
+// enumPropDefault builds a string-enum property carrying a DEFAULT, mirroring
+// z.enum([...]).optional().default(x). The default is part of the contract: a client
+// that omits the field must be told which value it will receive.
+func enumPropDefault(values []string, def string, description string) map[string]any {
+	anyValues := make([]any, len(values))
+	for i, v := range values {
+		anyValues[i] = v
+	}
+	return map[string]any{
+		"type":        "string",
+		"enum":        anyValues,
+		"default":     def,
+		"description": description,
+	}
+}
+
+// propConstrained builds a string property with min/max LENGTH, mirroring
+// z.string().min(n).max(m) — the shape the TS gives sessionPath. JSON Schema's length
+// bounds are minLength/maxLength; numeric minimum/maximum would be a different claim.
+func propConstrained(typ string, minLen, maxLen int, description string) map[string]any {
+	return map[string]any{
+		"type":        typ,
+		"minLength":   minLen,
+		"maxLength":   maxLen,
+		"description": description,
+	}
+}
+
 // enumProp builds a string-enum property, mirroring z.enum([...]).
 func enumProp(values []string, description string) map[string]any {
 	anyValues := make([]any, len(values))
@@ -70,7 +98,11 @@ func register(server *mcp.Server, legacyName, title, description string, annotat
 // ─────────────────────────────────────────────────────────────────────────────
 
 func registerEditorTools(server *mcp.Server, _ *Deps) {
-	sessionPath := propWithDefault("string", nil, "Optional absolute path to the local editor bridge session JSON; defaults to BANNERSAGE_EDITOR_PROBE_SESSION.")
+	// sessionPath mirrors the TS zod: z.string().min(1).max(4096).optional().
+	// ★ NO DEFAULT. An earlier version used propWithDefault(.., nil, ..), which emitted
+	// `"default": null` — a value the TS never advertises. The surface classifier caught
+	// it on all six editor tools.
+	sessionPath := propConstrained("string", 1, 4096, "Optional absolute path to the local editor bridge session JSON; defaults to BANNERSAGE_EDITOR_PROBE_SESSION.")
 
 	statusSchema := map[string]any{
 		"type":       "object",
@@ -82,7 +114,11 @@ func registerEditorTools(server *mcp.Server, _ *Deps) {
 }
 
 func registerAuthoringEditorTools(server *mcp.Server) {
-	sessionPath := propWithDefault("string", nil, "Optional absolute path to the local editor bridge session JSON; defaults to BANNERSAGE_EDITOR_PROBE_SESSION.")
+	// sessionPath mirrors the TS zod: z.string().min(1).max(4096).optional().
+	// ★ NO DEFAULT. An earlier version used propWithDefault(.., nil, ..), which emitted
+	// `"default": null` — a value the TS never advertises. The surface classifier caught
+	// it on all six editor tools.
+	sessionPath := propConstrained("string", 1, 4096, "Optional absolute path to the local editor bridge session JSON; defaults to BANNERSAGE_EDITOR_PROBE_SESSION.")
 
 	entitiesSchema := map[string]any{
 		"type":       "object",
@@ -143,7 +179,7 @@ func registerAuthoringEditorTools(server *mcp.Server) {
 	}
 	register(server, "bannerlord_editor_apply_layout", "Bannerlord Editor Apply Layout",
 		"Create or update up to 64 managed prefab roots in the active configured scene. Repeated IDs preserve objects and GUIDs; prefab conflicts are rejected. This changes the scene in memory; call save_scene explicitly to persist it.",
-		writable(), applyLayoutSchema, stubHandler(notImplemented(toolnaming.ArchiveToolName("bannerlord_editor_apply_layout"))))
+		writableDestructiveFalseIdempotent(), applyLayoutSchema, stubHandler(notImplemented(toolnaming.ArchiveToolName("bannerlord_editor_apply_layout"))))
 
 	saveSchema := map[string]any{
 		"type":       "object",
@@ -151,7 +187,7 @@ func registerAuthoringEditorTools(server *mcp.Server) {
 	}
 	register(server, "bannerlord_editor_save_scene", "Bannerlord Editor Save Scene",
 		"Save the active configured dedicated scene. Does not close, replace or reload the scene.",
-		writable(), saveSchema, stubHandler(notImplemented(toolnaming.ArchiveToolName("bannerlord_editor_save_scene"))))
+		writableIdempotent(), saveSchema, stubHandler(notImplemented(toolnaming.ArchiveToolName("bannerlord_editor_save_scene"))))
 
 	register(server, "bannerlord_editor_capture", "Bannerlord Editor Capture",
 		"Return the native editor screenshot as a PNG image plus metadata. Captures its current view without moving the camera, changing scene metadata or reloading.",
