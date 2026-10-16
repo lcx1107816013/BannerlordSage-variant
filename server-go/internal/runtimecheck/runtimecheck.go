@@ -132,19 +132,26 @@ func GetStatus(gameID string, requires Requires, sourcePath, defsPath, dbPath st
 // is therefore: follow the link and test the TARGET — a directory recurses, a file counts, and a
 // DANGLING link is skipped rather than reported.
 //
-// ★ THIS WALKER FOLLOWS LINKS WHERE THE XML WALKER DOES NOT, AND THAT IS NOT AN INCONSISTENCY.
-// internal/tools/gauntletui.go's walker deliberately does NOT follow symlinks, because the bun code
-// it mirrors does not; this one mirrors `walkFiles`, whose `stat` call follows by definition. Two
-// walkers, two measured behaviours, so a reader who finds them opposite should not "unify" them.
+// ★ A DIRECTORY JUNCTION IS `isSymbolicLink() === true` IN NODE, WHICH GO DOES NOT REPORT THAT WAY —
+// and this was a REAL, MEASURED DIVERGENCE in the first version of this walker. Measured on this host
+// for the same directory:
 //
-// ★ THE TEST IS ON THE DIRENT TYPE, AND ONLY A SYMLINK ENTERS THE FOLLOW PATH. JavaScript's
-// `entry.isSymbolicLink()` is true exactly for a symlink dirent, and `lstat`-style dirent reading
-// is what Node does on Windows for a SYMLINK. A JUNCTION is therefore a case worth stating: it
-// would be reported with different type bits, and whether Node's `isSymbolicLink()` is true for it
-// is NOT reproduced here — creating one needs privileges this host does not grant (recorded in
-// internal/gameprofiles' NOT REPRODUCED HERE note). The port follows whatever `os.Stat` says about
-// the target and SKIPS anything that is not a symlink dirent, which is the conservative reading of
-// the original's single `if (entry.isSymbolicLink())`.
+//	same entry    Go os.ReadDir                bun readdirSync({withFileTypes})
+//	junction_dir  Type() = ModeIrregular,      isSymbolicLink() = TRUE
+//	              symlink bit NOT set,         isDirectory() = FALSE, isFile() = FALSE
+//	              IsDir() = FALSE              stat: a directory
+//	hardlink      Type() = regular             isFile() = TRUE
+//
+// The TypeScript's `if (entry.isSymbolicLink())` therefore MATCHES a junction, and the walk descends
+// through it, while a Go test on `Type()&os.ModeSymlink` does not. The A/B on a tree with one
+// junction and three files measured the consequence: the TypeScript counts 4 files (visiting the
+// target's file twice, once through each name) and the first version of this port counted 3.
+//
+// So the test below mirrors what Node reports rather than what Go's dirent says: an entry that is not
+// a directory and not a regular file is treated as a LINK and stat'd, which covers symlinks,
+// junctions and any other reparse point in one branch. internal/tools/gauntletui.go's walker is the
+// deliberate opposite (it does NOT descend) because the bun code IT mirrors does not — two walkers,
+// two measured behaviours.
 func walkFiles(dir string, fn func(filePath string) error) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -164,15 +171,12 @@ func walkFiles(dir string, fn func(filePath string) error) error {
 			}
 			continue
 		}
-		// Neither a directory nor a regular file. The original tests ONLY for a symlink here, so
-		// any other dirent type falls out of the loop without being yielded.
-		if entry.Type()&os.ModeSymlink == 0 {
-			continue
-		}
+		// ★ NODE'S `isSymbolicLink()` IS TRUE FOR A JUNCTION EVEN THOUGH GO'S TYPE BITS DO NOT SAY SO,
+		// so the branch is entered for ANY non-directory, non-regular entry and the TARGET decides.
+		// Testing only `ModeSymlink` would skip every junction — which is precisely the bug measured
+		// above. A stat that fails (a dangling link) is skipped, as the original does.
 		info, statErr := os.Stat(fullPath)
 		if statErr != nil {
-			// A dangling link is skipped: the TypeScript continues here, because "points at nothing"
-			// is a different problem from "declared but absent".
 			continue
 		}
 		if info.IsDir() {

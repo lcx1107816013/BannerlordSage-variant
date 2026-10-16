@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"blore/internal/owndocs"
 	"blore/internal/runtimecheck"
 	"blore/internal/toolnaming"
 	"blore/internal/toolset"
@@ -233,6 +234,103 @@ func TestRuntimeCheckInvalidPathsAreAbsence(t *testing.T) {
 		if err != nil || count != 0 {
 			t.Errorf("%s: CountFilesInDirectory = (%v, %v), want (0, nil)", c.label, count, err)
 		}
+	}
+}
+
+// TestRuntimeCheckFollowsDirectoryJunctions pins the walker's treatment of a DIRECTORY JUNCTION, which
+// is where the first version of the port diverged from the TypeScript.
+//
+// ★ THE MEASUREMENT THAT STARTED THIS. Same entry, two dirent layers, on this host:
+//
+//	              Go os.ReadDir                        bun readdirSync({withFileTypes})
+//	junction_dir  Type() = ModeIrregular (0x80000),    isSymbolicLink() = TRUE
+//	              symlink bit NOT set,                 isDirectory() = FALSE
+//	              IsDir() = FALSE                      isFile() = FALSE
+//
+// The TypeScript's `if (entry.isSymbolicLink())` therefore MATCHES a junction and the walk descends
+// through it; a Go test on `Type()&os.ModeSymlink` does not. The A/B below is what turned that into a
+// number: a tree with one junction and three plain files counts 4 through the junction (the target's
+// file is reached by two names) and counted 3 with the old walker.
+//
+// ★ AND THE JUNCTION IS CREATABLE WITHOUT PRIVILEGES, which contradicts what an earlier note in this
+// suite claimed. `New-Item -ItemType Junction` needs no elevation; SYMLINKS do. That distinction is
+// why the case is here at all.
+func TestRuntimeCheckFollowsDirectoryJunctions(t *testing.T) {
+	root := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("plain/a.txt", "a")
+	writeFile("plain/b.txt", "b")
+	writeFile("real/c.txt", "c")
+
+	junction := filepath.Join(root, "linked")
+	if err := createJunction(junction, filepath.Join(root, "real")); err != nil {
+		t.Skipf("cannot create a directory junction on this host (%v); the rule is covered by the "+
+			"measured A/B recorded in the walker's comment", err)
+	}
+
+	// 4 through the junction: plain/a, plain/b, real/c, and linked/c (the same file by another name).
+	count, err := runtimecheck.CountFilesInDirectory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 4 {
+		t.Errorf("CountFilesInDirectory counted %d files, want 4 — the walker must DESCEND through the "+
+			"junction, because Node reports one as a symbolic link while Go's dirent does not", count)
+	}
+
+	has, err := runtimecheck.DirectoryHasFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has {
+		t.Error("DirectoryHasFiles reported false for a tree with files")
+	}
+}
+
+// TestOwnDocsSkipsDirectoryJunctions pins the OPPOSITE rule for the other walker, so the two cannot be
+// "unified" by a future reader who finds them inconsistent.
+//
+// own-docs' walkMarkdown has NO symlink branch: it recurses on isDirectory() and collects on isFile().
+// A junction satisfies neither (bun reports both false for one), so it is SKIPPED — verified A/B, both
+// sides returning 2 files for a tree holding a junction to a directory with one markdown file.
+func TestOwnDocsSkipsDirectoryJunctions(t *testing.T) {
+	root := t.TempDir()
+	writeFile := func(rel, content string) {
+		t.Helper()
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("plain/a.md", "# A\n## S\nbody\n")
+	writeFile("real/c.md", "# C\n## R\nbody\n")
+
+	junction := filepath.Join(root, "linked")
+	if err := createJunction(junction, filepath.Join(root, "real")); err != nil {
+		t.Skipf("cannot create a directory junction on this host (%v)", err)
+	}
+
+	files := owndocs.ListOwnDocFiles([]string{root})
+	if len(files) != 2 {
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			rel, _ := filepath.Rel(root, f)
+			names = append(names, filepath.ToSlash(rel))
+		}
+		t.Errorf("ListOwnDocFiles returned %d files (%v), want 2 — own-docs does NOT descend through "+
+			"junctions, unlike the runtime-check walker", len(files), names)
 	}
 }
 
