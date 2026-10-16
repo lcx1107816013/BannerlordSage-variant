@@ -22,38 +22,40 @@ type RipgrepMatch = {
   submatchCount: number
 }
 
+type RipgrepParse = {
+  matches: RipgrepMatch[]
+  uniqueFileCount: number
+}
+
 export async function searchSource(
   sandbox: PathSandbox,
   query: string,
   caseSensitive: boolean = false,
   filePattern?: string
 ) {
-  const args = ['--json', '--line-number', '--color', 'never']
-  if (caseSensitive) args.push('-s')
-  else args.push('-i')
-
-  if (filePattern) args.push('-g', filePattern)
-  args.push('-e', query, '.')
-
-  const proc = Bun.spawn(['rg', ...args], {
+  const process = Bun.spawn(['rg', ...buildRipgrepArgs(query, caseSensitive, filePattern)], {
     cwd: sandbox.basePath,
     stdout: 'pipe',
     stderr: 'pipe',
   })
 
   const [stdoutText, stderrText, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
   ])
 
-  if (exitCode !== 0 && exitCode !== 1) {
+  // ripgrep reports 0 for "found matches" and 1 for "found nothing"; anything
+  // else is a real failure.
+  const ripgrepFailed = exitCode !== 0 && exitCode !== 1
+  if (ripgrepFailed) {
     throw new Error(`ripgrep failed while searching source: ${stderrText.trim() || `exit code ${exitCode}`}`)
   }
 
   const parsed = parseRipgrepJson(stdoutText)
-  const blocks: AiTextBlock[] = parsed.matches.slice(0, MAX_MATCH_RESULTS).map((match, index) => ({
-    header: `match_${index + 1}`,
+  const returnedMatches = parsed.matches.slice(0, MAX_MATCH_RESULTS)
+  const blocks: AiTextBlock[] = returnedMatches.map((match, position) => ({
+    header: `match_${position + 1}`,
     fields: [
       { key: 'file_path', value: match.filePath },
       { key: 'line_number_1based', value: match.lineNumber },
@@ -62,25 +64,40 @@ export async function searchSource(
     multilineFields: [{ key: 'line_text', value: match.lineText }],
   }))
 
+  const overLimit = parsed.matches.length > MAX_MATCH_RESULTS
   const text = renderAiTextReport('source_search', 'query_text', query, blocks, [
-    { key: 'case_sensitive', value: caseSensitive ? 'true' : 'false' },
+    { key: 'case_sensitive', value: renderBoolean(caseSensitive) },
     { key: 'file_pattern', value: filePattern || '(none)' },
     { key: 'unique_file_count', value: parsed.uniqueFileCount },
     { key: 'total_matches_found', value: parsed.matches.length },
     { key: 'matches_returned', value: Math.min(parsed.matches.length, MAX_MATCH_RESULTS) },
     { key: 'match_limit', value: MAX_MATCH_RESULTS },
-    { key: 'truncated', value: parsed.matches.length > MAX_MATCH_RESULTS ? 'true' : 'false' },
+    { key: 'truncated', value: renderBoolean(overLimit) },
   ])
 
   return { content: [{ type: 'text' as const, text }] }
 }
 
-function parseRipgrepJson(stdoutText: string): { matches: RipgrepMatch[]; uniqueFileCount: number } {
+/** The JSON mode plus line numbers and no color; case and path filters are flags. */
+function buildRipgrepArgs(query: string, caseSensitive: boolean, filePattern?: string): string[] {
+  const args = ['--json', '--line-number', '--color', 'never', caseSensitive ? '-s' : '-i']
+  if (filePattern) {
+    args.push('-g', filePattern)
+  }
+  args.push('-e', query, '.')
+  return args
+}
+
+function renderBoolean(value: boolean): string {
+  return value ? 'true' : 'false'
+}
+
+function parseRipgrepJson(stdoutText: string): RipgrepParse {
   const matches: RipgrepMatch[] = []
   const uniqueFiles = new Set<string>()
 
-  for (const line of stdoutText.split(/\r?\n/)) {
-    const trimmed = line.trim()
+  for (const rawLine of stdoutText.split(/\r?\n/)) {
+    const trimmed = rawLine.trim()
     if (!trimmed) continue
 
     let event: any
@@ -96,7 +113,7 @@ function parseRipgrepJson(stdoutText: string): { matches: RipgrepMatch[]; unique
     const filePath = data.path?.text
     if (typeof filePath !== 'string' || filePath.length === 0) continue
 
-    const normalizedPath = filePath.replace(/^[.][\\/]/, '').replaceAll('\\', '/')
+    const normalizedPath = stripLeadingDotSlash(filePath)
 
     uniqueFiles.add(normalizedPath)
     matches.push({
@@ -126,17 +143,38 @@ function parseRipgrepJson(stdoutText: string): { matches: RipgrepMatch[]; unique
   // The path comparison is a plain code-unit comparison, not localeCompare: the choice here must
   // not depend on the host's locale (see the localization port for the measured case where
   // localeCompare differs by locale).
-  matches.sort((left, right) => {
-    if (left.filePath !== right.filePath) return left.filePath < right.filePath ? -1 : 1
-    const leftLine = left.lineNumber ?? Number.MAX_SAFE_INTEGER
-    const rightLine = right.lineNumber ?? Number.MAX_SAFE_INTEGER
-    if (leftLine !== rightLine) return leftLine - rightLine
-    if (left.lineText !== right.lineText) return left.lineText < right.lineText ? -1 : 1
-    return 0
-  })
+  matches.sort(compareRipgrepMatches)
 
   return {
     matches,
     uniqueFileCount: uniqueFiles.size,
   }
+}
+
+/** `./x` and `.\\x` both denote a path inside the sandbox, so the marker drops. */
+function stripLeadingDotSlash(filePath: string): string {
+  return filePath.replace(/^[.][\\/]/, '').replaceAll('\\', '/')
+}
+
+/**
+ * Total order over matches. A null line number sorts after every real one
+ * (MAX_SAFE_INTEGER stands in for "unknown"), and the line text is the final
+ * tiebreaker purely so two events that agree on path and line still compare.
+ */
+function compareRipgrepMatches(left: RipgrepMatch, right: RipgrepMatch): number {
+  if (left.filePath !== right.filePath) {
+    return left.filePath < right.filePath ? -1 : 1
+  }
+
+  const leftLine = left.lineNumber ?? Number.MAX_SAFE_INTEGER
+  const rightLine = right.lineNumber ?? Number.MAX_SAFE_INTEGER
+  if (leftLine !== rightLine) {
+    return leftLine - rightLine
+  }
+
+  if (left.lineText !== right.lineText) {
+    return left.lineText < right.lineText ? -1 : 1
+  }
+
+  return 0
 }

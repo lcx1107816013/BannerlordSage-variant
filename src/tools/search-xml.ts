@@ -7,7 +7,7 @@ import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 export async function searchXml(query: string) {
   const db = getDb()
   const ftsQuery = buildFtsQuery(query)
-  const rows = db
+  const matchRows = db
     .query<any, any>(
       `
       SELECT
@@ -22,30 +22,26 @@ export async function searchXml(query: string) {
     )
     .all({ $query: ftsQuery })
 
-  if (rows.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: renderAiTextReport('xml_search', 'query_text', query, [], [
-            { key: 'fts_query', value: ftsQuery },
-          ]),
-        },
-      ],
-    }
+  const footnotes = [{ key: 'fts_query', value: ftsQuery }]
+
+  if (matchRows.length === 0) {
+    return reply(renderAiTextReport('xml_search', 'query_text', query, [], footnotes))
   }
 
-  const blocks: AiTextBlock[] = rows.map((row: any, index: number) => ({
-    header: `match_${index + 1}`,
+  const blocks: AiTextBlock[] = matchRows.map((matchRow, position) => ({
+    header: `match_${position + 1}`,
     fields: [
-      { key: 'module_name', value: row.moduleName },
-      { key: 'file_path', value: row.filePath },
+      { key: 'module_name', value: matchRow.moduleName },
+      { key: 'file_path', value: matchRow.filePath },
     ],
-    multilineFields: [{ key: 'snippet', value: row.snippet || '(no snippet)' }],
+    multilineFields: [{ key: 'snippet', value: matchRow.snippet || '(no snippet)' }],
   }))
 
-  const text = renderAiTextReport('xml_search', 'query_text', query, blocks, [{ key: 'fts_query', value: ftsQuery }])
+  return reply(renderAiTextReport('xml_search', 'query_text', query, blocks, footnotes))
+}
 
+/** Wraps a rendered report in the single-text-content reply shape. */
+function reply(text: string) {
   return { content: [{ type: 'text' as const, text }] }
 }
 
