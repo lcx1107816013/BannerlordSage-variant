@@ -12,43 +12,63 @@ import { getDb } from './db'
 const TOKEN_REGEX = /^\{=([^}]+)\}(.*)$/
 
 /** Alias table: canonical language -> accepted spellings (compared after
- * whitespace/underscore/hyphen stripping). */
-const CANONICAL_LANGUAGE_ALIASES: Record<string, string[]> = {
-  english: ['english', 'en'],
-  chinese_simplified: [
-    'cn',
-    'cns',
-    'chs',
-    'sc',
-    'zh',
-    'zhcn',
-    'zhhans',
-    'zh-hans',
-    'simplifiedchinese',
-    'chinesesimplified',
+ * whitespace/underscore/hyphen stripping).
+ *
+ * Insertion order is load-bearing: getCanonicalLanguage() returns the FIRST
+ * canonical whose alias list matches, so a spelling shared by two languages
+ * resolves to whichever appears here first.
+ */
+const CANONICAL_LANGUAGE_ALIASES = new Map<string, string[]>([
+  ['english', ['english', 'en']],
+  [
+    'chinese_simplified',
+    [
+      'cn',
+      'cns',
+      'chs',
+      'sc',
+      'zh',
+      'zhcn',
+      'zhhans',
+      'zh-hans',
+      'simplifiedchinese',
+      'chinesesimplified',
+    ],
   ],
-  chinese_traditional: [
-    'cnt',
-    'cht',
-    'tc',
-    'zhtw',
-    'zhhk',
-    'zhhant',
-    'zh-hant',
-    'traditionalchinese',
-    'chinesetraditional',
+  [
+    'chinese_traditional',
+    [
+      'cnt',
+      'cht',
+      'tc',
+      'zhtw',
+      'zhhk',
+      'zhhant',
+      'zh-hant',
+      'traditionalchinese',
+      'chinesetraditional',
+    ],
   ],
-  portuguese: ['br', 'portuguese', 'pt', 'ptbr'],
-  german: ['de', 'german'],
-  french: ['fr', 'french'],
-  italian: ['it', 'italian'],
-  japanese: ['jp', 'japanese'],
-  korean: ['ko', 'korean'],
-  polish: ['pl', 'polish'],
-  russian: ['ru', 'russian'],
-  spanish: ['sp', 'es', 'spanish'],
-  turkish: ['tr', 'turkish'],
-}
+  ['portuguese', ['br', 'portuguese', 'pt', 'ptbr']],
+  ['german', ['de', 'german']],
+  ['french', ['fr', 'french']],
+  ['italian', ['it', 'italian']],
+  ['japanese', ['jp', 'japanese']],
+  ['korean', ['ko', 'korean']],
+  ['polish', ['pl', 'polish']],
+  ['russian', ['ru', 'russian']],
+  ['spanish', ['sp', 'es', 'spanish']],
+  ['turkish', ['tr', 'turkish']],
+])
+
+/** Preference order applied after the caller's own list. */
+const DEFAULT_LANGUAGE_PREFERENCE = ['chinese_simplified', 'chinese_traditional', 'english'] as const
+
+/** Prefix that marks the English base files (`std_*`). */
+const ENGLISH_BASE_PREFIX = 'std'
+
+/** Separators that carry no meaning when comparing two language spellings. */
+const MEANINGLESS_SEPARATORS = /[\s_-]+/g
 
 export type LocalizationToken = {
   id: string
@@ -96,41 +116,16 @@ export function resolveLocalizationDetails(
   preferredLanguages?: string[]
 ): LocalizationDetails {
   const token = parseLocalizationToken(tokenOrId)
-  const id = token?.id || tokenOrId.replace(/[{}=]/g, '').trim()
+  const id = token?.id || stripTokenPunctuation(tokenOrId)
   const db = getDb()
 
-  const xmlEntries = db
-    .query<any, any>(
-      `
-      SELECT language, text, filePath
-      FROM localization_entries
-      WHERE stringId = $id
-      ORDER BY language, filePath
-    `
-    )
-    .all({
-      $id: id,
-    }) as XmlLocalizationEntry[]
-
-  // The source-localization table only exists after the C# indexing pass;
-  // probing avoids a hard failure on XML-only indexes.
-  const sourceEntries = hasRuntimeTable('source_localization_entries')
-    ? (db
-        .query<any, any>(
-          `
-          SELECT fallbackText, filePath, moduleName, assemblyName, lineNumber, columnNumber, contextKind, sourcePriority
-          FROM source_localization_entries
-          WHERE stringId = $id
-          ORDER BY sourcePriority, moduleName, assemblyName, filePath, lineNumber, columnNumber
-        `
-        )
-        .all({ $id: id }) as SourceLocalizationEntry[])
-    : []
+  const xmlEntries = readXmlEntries(db, id)
+  const sourceEntries = readSourceEntries(db, id)
 
   xmlEntries.sort((left, right) => {
-    const rankDelta =
-      getLocalizationLanguageRank(left.language, preferredLanguages) -
-      getLocalizationLanguageRank(right.language, preferredLanguages)
+    const leftRank = getLocalizationLanguageRank(left.language, preferredLanguages)
+    const rightRank = getLocalizationLanguageRank(right.language, preferredLanguages)
+    const rankDelta = leftRank - rightRank
 
     if (rankDelta !== 0) {
       return rankDelta
@@ -152,6 +147,45 @@ export function resolveLocalizationDetails(
   }
 }
 
+/** The bare id inside `{=…}` when no token structure is present. */
+function stripTokenPunctuation(tokenOrId: string): string {
+  return tokenOrId.replace(/[{}=]/g, '').trim()
+}
+
+function readXmlEntries(db: ReturnType<typeof getDb>, id: string): XmlLocalizationEntry[] {
+  return db
+    .query<any, any>(
+      `
+      SELECT language, text, filePath
+      FROM localization_entries
+      WHERE stringId = $id
+      ORDER BY language, filePath
+    `
+    )
+    .all({
+      $id: id,
+    }) as XmlLocalizationEntry[]
+}
+
+/** The source-localization table only exists after the C# indexing pass;
+ * probing avoids a hard failure on XML-only indexes. */
+function readSourceEntries(db: ReturnType<typeof getDb>, id: string): SourceLocalizationEntry[] {
+  if (!hasRuntimeTable('source_localization_entries')) {
+    return []
+  }
+
+  return db
+    .query<any, any>(
+      `
+      SELECT fallbackText, filePath, moduleName, assemblyName, lineNumber, columnNumber, contextKind, sourcePriority
+      FROM source_localization_entries
+      WHERE stringId = $id
+      ORDER BY sourcePriority, moduleName, assemblyName, filePath, lineNumber, columnNumber
+    `
+    )
+    .all({ $id: id }) as SourceLocalizationEntry[]
+}
+
 /** Language -> first text mapping, with canonical keys merged in; also
  * exposes the source-decompiled and token fallbacks under fixed keys. */
 export function resolveLocalizationMap(
@@ -162,6 +196,8 @@ export function resolveLocalizationMap(
   const mapping: Record<string, string> = {}
 
   for (const row of details.xmlEntries) {
+    // First row wins per key: the SQL already ordered language, filePath, so
+    // an existing entry is never overwritten.
     if (!mapping[row.language]) {
       mapping[row.language] = row.text
     }
@@ -172,8 +208,9 @@ export function resolveLocalizationMap(
     }
   }
 
-  if (details.sourceEntries[0]?.fallbackText && !mapping.sourceFallback) {
-    mapping.sourceFallback = details.sourceEntries[0].fallbackText
+  const bestSourceEntry = details.sourceEntries[0]
+  if (bestSourceEntry?.fallbackText && !mapping.sourceFallback) {
+    mapping.sourceFallback = bestSourceEntry.fallbackText
   }
 
   if (details.tokenFallback && !mapping.fallback) {
@@ -226,12 +263,14 @@ function buildPreferredLanguageOrder(preferredLanguages?: string[]): string[] {
 
   for (const language of preferredLanguages ?? []) {
     const canonical = getCanonicalLanguage(language)
+    // A language we cannot canonicalize contributes nothing, and a duplicate
+    // spelling of one already in the list contributes nothing either.
     if (canonical && !result.includes(canonical)) {
       result.push(canonical)
     }
   }
 
-  for (const fallback of ['chinese_simplified', 'chinese_traditional', 'english']) {
+  for (const fallback of DEFAULT_LANGUAGE_PREFERENCE) {
     if (!result.includes(fallback)) {
       result.push(fallback)
     }
@@ -246,7 +285,9 @@ function getLocalizationLanguageRank(language: string, preferredLanguages?: stri
   const canonical = getCanonicalLanguage(language)
   const order = buildPreferredLanguageOrder(preferredLanguages)
   const index = canonical ? order.indexOf(canonical) : -1
-  return index === -1 ? order.length + 1 : index
+  const isUnranked = index === -1
+
+  return isUnranked ? order.length + 1 : index
 }
 
 /** `std` files are the English base; then alias lookup; otherwise the
@@ -257,11 +298,11 @@ function getCanonicalLanguage(language: string): string | null {
     return null
   }
 
-  if (normalized.startsWith('std')) {
+  if (normalized.startsWith(ENGLISH_BASE_PREFIX)) {
     return 'english'
   }
 
-  for (const [canonical, aliases] of Object.entries(CANONICAL_LANGUAGE_ALIASES)) {
+  for (const [canonical, aliases] of CANONICAL_LANGUAGE_ALIASES) {
     if (matchesLanguage(normalized, aliases)) {
       return canonical
     }
@@ -271,7 +312,8 @@ function getCanonicalLanguage(language: string): string | null {
 }
 
 function normalizeLanguageKey(language: string | undefined): string {
-  return (language || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
+  const raw = language || ''
+  return raw.trim().toLowerCase().replace(MEANINGLESS_SEPARATORS, '')
 }
 
 function matchesLanguage(normalizedLanguage: string, aliases: string[]): boolean {
