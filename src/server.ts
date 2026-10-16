@@ -13,6 +13,8 @@ import { generateHarmonyPatch } from './tools/generate-harmony-patch'
 import { generateXsltPatch } from './tools/generate-xslt-patch'
 import { getEntity } from './tools/get-entity'
 import { indexModSource } from './tools/index-mod-source'
+import { indexAssetsTool } from './tools/index-assets'
+import { findAssetTool } from './tools/find-asset'
 import { listDirectory } from './tools/list-directory'
 import { listModDirectory } from './tools/list-mod-directory'
 import { modSourceStatus } from './tools/mod-source-status'
@@ -504,4 +506,50 @@ server.registerTool(
     },
   },
   async ({ uiFileName }) => await readGauntletUi(sandbox, uiFileName),
+)
+
+// ── Asset side: this project's own capability, absent upstream ──────────────
+//
+// Both read the REAL install directory rather than `sandbox` (the imported assets tree),
+// because artwork is not imported: the assets tree holds XML and decompiled C#, not the
+// game's shipped textures. That is why they take gameDir rather than a relative path, and
+// why a wrong path is reported as unreadable instead of as an install with no artwork.
+server.registerTool(
+  archiveToolName('index_assets'),
+  {
+    title: 'Index Assets',
+    description:
+      'List every texture, model and .tpac asset package in a Bannerlord install, or in one module of it. Reports what exists and where; payloads are not decoded. Use before find_asset when you do not yet know a filename.',
+    inputSchema: {
+      gameDir: z.string().describe('Bannerlord install directory, not the imported assets tree.'),
+      moduleId: z.string().optional().describe('Restrict to one module under Modules/.'),
+      query: z.string().optional().describe('Substring filter over filename, path and module id.'),
+      limit: z.number().int().positive().optional().describe('Stop after this many entries; the report says when it did.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ gameDir, moduleId, query, limit }) => await indexAssetsTool({ gameDir, moduleId, query, limit }),
+)
+
+server.registerTool(
+  archiveToolName('find_asset'),
+  {
+    title: 'Find Asset',
+    description:
+      'Locate one artwork file by name, path fragment or module id. Ranks an exact filename match first, so the location of a file you can already name comes back at the top.',
+    inputSchema: {
+      gameDir: z.string().describe('Bannerlord install directory.'),
+      query: z.string().describe('Filename, path fragment or module id. Required.'),
+      moduleId: z.string().optional().describe('Restrict the search to one module.'),
+      limit: z.number().int().positive().optional().describe('Maximum matches to return.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ gameDir, query, moduleId, limit }) => await findAssetTool({ gameDir, query, moduleId, limit }),
 )

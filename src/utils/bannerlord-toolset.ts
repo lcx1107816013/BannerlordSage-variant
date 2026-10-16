@@ -42,6 +42,13 @@ export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'generate_harmony_patch',
   'resolve_localization',
   'read_gauntlet_ui',
+  // ── asset side: what artwork exists, and where one named file is ─────────
+  // In the DEFAULT tier on purpose. Both are read-only, both answer a question a
+  // modder asks before touching anything, and an inventory lookup that costs a
+  // tier switch is one nobody uses. They were added by this project - upstream has
+  // no notion of assets - so there is no upstream tier placement to preserve.
+  'index_assets',
+  'find_asset',
 ].map(archiveToolName)
 
 export const AUTHORING_BANNERLORD_TOOL_NAMES = [

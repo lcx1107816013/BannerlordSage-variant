@@ -22,82 +22,82 @@
     {
       "input": null,
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "   ",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "query-first",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "QUERY-FIRST",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "  query-first  ",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "Query-First",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "full",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "FULL",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "full ",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "queryfirst",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "query_first",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "query-first extra",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     },
     {
       "input": "query-first　",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "﻿query-first",
       "mode": "query-first",
-      "toolCount": 39
+      "toolCount": 41
     },
     {
       "input": "query-first",
       "mode": "full",
-      "toolCount": 46
+      "toolCount": 48
     }
   ],
   "queryFirstTools": [
@@ -139,7 +139,9 @@
     "ba_get_entity",
     "ba_generate_harmony_patch",
     "ba_resolve_localization",
-    "ba_read_gauntlet_ui"
+    "ba_read_gauntlet_ui",
+    "ba_index_assets",
+    "ba_find_asset"
   ],
   "authoringTools": [
     "ba_create_mod_workspace",

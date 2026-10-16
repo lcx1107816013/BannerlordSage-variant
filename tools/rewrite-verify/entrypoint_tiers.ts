@@ -11,8 +11,8 @@
  * `||=` and `??=` are NOT interchangeable here. The toolset resolver treats anything
  * that is not exactly `query-first` as `full`, so with `BANNERSAGE_TOOLSET=""`:
  *
- *     ||=  -> 'query-first'  ->  the resolver sees query-first  ->  39 tools
- *     ??=  -> ""             ->  the resolver falls back to full ->  46 tools
+ *     ||=  -> 'query-first'  ->  the resolver sees query-first  ->  query-first tier
+ *     ??=  -> ""             ->  the resolver falls back to full ->  full tier
  *
  * A draft used `??=` ("the nullish form is the safer default") and this measurement is
  * what caught it. An entry-point smoke run that only checks "it printed the ready line"
@@ -23,7 +23,12 @@
  *
  * Output is a table of (entrypoint, BANNERSAGE_TOOLSET) -> tool count. Run it against the
  * upstream revision by checking that file out to a scratch tree and pointing SAGE_ROOT
- * at it; the expected counts by tier are 39 (query-first) and 46 (full).
+ * at it; the expected counts by tier live in TIERS below.
+ *
+ * ★ THE COUNTS MOVED WHEN THE ASSET TOOLS WERE ADDED. They were 39/46 and are now 41/48,
+ * because index_assets and find_asset joined the query-first tier. The size that matters is
+ * TIERS, and a test that reads it is why the addition was noticed here at all - a hardcoded
+ * expectation somewhere else would have failed with a message about the wrong thing.
  */
 import { spawn } from 'node:child_process';
 
@@ -31,7 +36,7 @@ const SAGE_ROOT = process.env.SAGE_ROOT ?? 'D:\\GitHub\\BannerlordSage-variant';
 const BUN = process.env.BUN_PATH
   ?? 'C:\\Users\\LCGX\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Oven-sh.Bun_Microsoft.Winget.Source_8wekyb3d8bbwe\\bun-windows-x64\\bun.exe';
 
-const TIERS = { 'query-first': 39, full: 46 } as const;
+const TIERS = { 'query-first': 41, full: 48 } as const;
 
 type Result = { entry: string; env: string; tools: number | null; verdict: string };
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -338,6 +340,109 @@ func bindReadGauntletUI(server *mcp.Server, _ *Deps) {
 			return nil, err
 		}
 		return textOnly(text), nil
+	})
+}
+
+// bindIndexAssets exposes the asset-side inventory: every texture, model and .tpac bundle
+// under an install, or under one module of it.
+//
+// It reads the REAL install directory rather than the imported index, because artwork is not
+// imported - the assets tree holds XML and decompiled C#, not the game's shipped art. The
+// caller supplies gameDir for that reason, and a wrong path is reported as unreadable rather
+// than as an install with no artwork.
+func bindIndexAssets(server *mcp.Server, _ *Deps) {
+	server.AddTool(&mcp.Tool{
+		Name:        name("index_assets"),
+		Title:       "Index Assets",
+		Description: "List every texture, model and .tpac asset package in a Bannerlord install (or one module). Reports what exists and where; payloads are not decoded.",
+		Annotations: readOnly(),
+		InputSchema: schema(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"gameDir":   prop("string", "Bannerlord install directory, not the imported assets tree."),
+				"moduleId":  prop("string", "Restrict to one module under Modules/."),
+				"query":     prop("string", "Substring filter over filename, path and module id."),
+				"limit":     prop("integer", "Stop after this many entries; the report says when it did."),
+			},
+			"required": []string{"gameDir"},
+		}),
+	}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		in, err := args[struct {
+			GameDir  string `json:"gameDir"`
+			ModuleID string `json:"moduleId"`
+			Query    string `json:"query"`
+			Limit    int    `json:"limit"`
+		}](req)
+		if err != nil {
+			return nil, err
+		}
+
+		gameDir := strings.TrimSpace(in.GameDir)
+		if gameDir == "" {
+			return textOnly("report_type: index_assets\nerror: gameDir is required\n"), nil
+		}
+		if info, statErr := os.Stat(gameDir); statErr != nil || !info.IsDir() {
+			return textOnly(fmt.Sprintf(
+				"report_type: index_assets\nerror: gameDir is not a readable directory: %s\n", gameDir)), nil
+		}
+
+		index, err := tools.IndexAssets(gameDir, tools.IndexAssetsOptions{
+			Limit:    in.Limit,
+			ModuleID: in.ModuleID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return textOnly(tools.FormatAssetIndex(index, in.Query)), nil
+	})
+}
+
+// bindFindAsset narrows the inventory to the name a caller already has.
+//
+// Kept separate from index_assets because the two answer different questions - "what is
+// here" versus "where is this file" - and an empty query means opposite things to each. For
+// the inventory it means "no filter"; for a lookup it is an unasked question, and it says so
+// rather than returning the whole tree under the heading of a match.
+func bindFindAsset(server *mcp.Server, _ *Deps) {
+	server.AddTool(&mcp.Tool{
+		Name:        name("find_asset"),
+		Title:       "Find Asset",
+		Description: "Locate one artwork file by name, path fragment or module id. Ranks an exact filename match first.",
+		Annotations: readOnly(),
+		InputSchema: schema(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"gameDir": prop("string", "Bannerlord install directory."),
+				"query":   prop("string", "Filename, path fragment or module id. Required."),
+			},
+			"required": []string{"gameDir", "query"},
+		}),
+	}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		in, err := args[struct {
+			GameDir string `json:"gameDir"`
+			Query   string `json:"query"`
+		}](req)
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.TrimSpace(in.Query) == "" {
+			return textOnly("report_type: find_asset\nerror: query is required\n"), nil
+		}
+		gameDir := strings.TrimSpace(in.GameDir)
+		if gameDir == "" {
+			return textOnly("report_type: find_asset\nerror: gameDir is required\n"), nil
+		}
+		if info, statErr := os.Stat(gameDir); statErr != nil || !info.IsDir() {
+			return textOnly(fmt.Sprintf(
+				"report_type: find_asset\nerror: gameDir is not a readable directory: %s\n", gameDir)), nil
+		}
+
+		index, err := tools.IndexAssets(gameDir, tools.IndexAssetsOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return textOnly(tools.FormatFindAsset(index, in.Query)), nil
 	})
 }
 

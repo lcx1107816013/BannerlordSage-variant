@@ -84,6 +84,11 @@ func buildQueryFirstLegacy() []string {
 		"generate_harmony_patch",
 		"resolve_localization",
 		"read_gauntlet_ui",
+		// Asset side, added by this project — upstream has no notion of assets, so there is
+		// no upstream tier placement to preserve. Both are read-only and both answer a
+		// question asked before anything is modified.
+		"index_assets",
+		"find_asset",
 	}
 	out := make([]string, 0, len(head)+len(LegacyGameplayToolNames)+len(tail))
 	out = append(out, head...)

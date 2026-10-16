@@ -10,7 +10,7 @@
 //
 // ★ NOT SILENTLY FEWER
 //
-// The TypeScript registers 46 tools (39 query-first + 7 authoring, the latter only in
+// The TypeScript registers 48 tools (41 query-first + 7 authoring, the latter only in
 // 'full' mode). This file registers ALL of them. A tool whose Go body exists is bound to
 // it; the rest are bound to an explicit not-implemented answer. The alternative —
 // registering only the ported ~20 — is the "quietly 16 fewer tools" bug again, in the
@@ -147,6 +147,11 @@ func registerAll(server *mcp.Server, deps *Deps) {
 	bindGetEntity(server, deps)
 	bindResolveLocalization(server, deps)
 	bindReadGauntletUI(server, deps)
+	// Asset side, ported in Go rather than stubbed: these are this project's own tools, so
+	// there is no upstream body to be missing. Binding them last keeps the stub-then-bind
+	// ordering intact - a stub registered after its body would shadow it.
+	bindIndexAssets(server, deps)
+	bindFindAsset(server, deps)
 	bindReadCsharpType(server, deps)
 	bindSearchSource(server, deps)
 	bindSearchKnowledge(server, deps)

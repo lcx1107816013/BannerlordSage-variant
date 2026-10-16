@@ -57,6 +57,9 @@ func registerMainTools(server *mcp.Server, deps *Deps) {
 	registerGenerateXsltPatch(server, deps)
 	registerResolveLocalization(server, deps)
 	registerReadGauntletUI(server, deps)
+	// Asset side: this project's own capability, absent upstream.
+	registerIndexAssets(server, deps)
+	registerFindAsset(server, deps)
 }
 
 func registerDoctor(server *mcp.Server) {
@@ -380,6 +383,40 @@ func registerResolveLocalization(server *mcp.Server, deps *Deps) {
 	register(server, "resolve_localization", "Resolve Localization Token",
 		"Resolve a {=token}Fallback string to its localized text (Languages XML + source fallback literals).",
 		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("resolve_localization"))))
+}
+
+// registerIndexAssets and registerFindAsset put the asset-side tools on the stub surface, so
+// the tool list is identical to the TypeScript's. Their real bodies bind afterwards in
+// registerAll; registering the name here first is what keeps "every tool present exactly
+// once" true when a body is missing.
+func registerIndexAssets(server *mcp.Server, deps *Deps) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"gameDir":  prop("string", "Bannerlord install directory, not the imported assets tree."),
+			"moduleId": prop("string", "Restrict to one module under Modules/."),
+			"query":    prop("string", "Substring filter over filename, path and module id."),
+			"limit":    prop("integer", "Stop after this many entries; the report says when it did."),
+		},
+		"required": []string{"gameDir"},
+	}
+	register(server, "index_assets", "Index Assets",
+		"List every texture, model and .tpac asset package in a Bannerlord install (or one module). Reports what exists and where; payloads are not decoded.",
+		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("index_assets"))))
+}
+
+func registerFindAsset(server *mcp.Server, deps *Deps) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"gameDir": prop("string", "Bannerlord install directory."),
+			"query":   prop("string", "Filename, path fragment or module id. Required."),
+		},
+		"required": []string{"gameDir", "query"},
+	}
+	register(server, "find_asset", "Find Asset",
+		"Locate one artwork file by name, path fragment or module id. Ranks an exact filename match first.",
+		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("find_asset"))))
 }
 
 func registerReadGauntletUI(server *mcp.Server, deps *Deps) {
