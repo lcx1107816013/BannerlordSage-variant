@@ -33,17 +33,7 @@ export async function readTextFileSlice(
 ): Promise<TextSlice> {
   ensureRuntimeRevisionFresh()
   const entry = await getCachedTextFile(fullPath)
-  const safeStart = Math.max(0, startLine)
-  const safeCount = Math.max(1, lineCount)
-  const endLineExclusive = Math.min(safeStart + safeCount, entry.lines.length)
-
-  return {
-    text: entry.lines.slice(safeStart, endLineExclusive).join('\n'),
-    startLine: safeStart,
-    endLineExclusive,
-    totalLines: entry.lines.length,
-    hasMore: endLineExclusive < entry.lines.length,
-  }
+  return windowOfEntry(entry, startLine, lineCount)
 }
 
 export async function readTextFileLines(fullPath: string): Promise<string[]> {
@@ -56,12 +46,31 @@ export function clearTextFileCache(): void {
   cache.clear()
 }
 
+function windowOfEntry(entry: CachedTextFile, startLine: number, lineCount: number): TextSlice {
+  const safeStart = Math.max(0, startLine)
+  const safeCount = Math.max(1, lineCount)
+  const totalLines = entry.lines.length
+  const endLineExclusive = Math.min(safeStart + safeCount, totalLines)
+
+  return {
+    text: entry.lines.slice(safeStart, endLineExclusive).join('\n'),
+    startLine: safeStart,
+    endLineExclusive,
+    totalLines,
+    hasMore: endLineExclusive < totalLines,
+  }
+}
+
+function isStillCurrent(cached: CachedTextFile, mtimeMs: number, size: number): boolean {
+  return cached.mtimeMs === mtimeMs && cached.size === size
+}
+
 async function getCachedTextFile(fullPath: string): Promise<CachedTextFile> {
   const resolvedPath = resolve(fullPath)
   const stats = await stat(resolvedPath)
   const cached = cache.get(resolvedPath)
 
-  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+  if (cached !== undefined && isStillCurrent(cached, stats.mtimeMs, stats.size)) {
     refreshLru(resolvedPath, cached)
     return cached
   }
@@ -85,7 +94,8 @@ function refreshLru(key: string, value: CachedTextFile): void {
   cache.set(key, value)
 
   while (cache.size > MAX_CACHED_FILES) {
-    const oldestKey = cache.keys().next().value
+    const oldest = cache.keys().next()
+    const oldestKey = oldest.value
     if (!oldestKey) {
       break
     }

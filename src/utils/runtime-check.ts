@@ -6,6 +6,20 @@ import { activeGameId, dbPath, defsPath, sourcePath } from './env'
 import { countFilesInDirectory, directoryHasFiles, fileExists } from './bannerlord-setup'
 import { getGameProfile } from './game-profiles'
 
+type IndexRequirement = {
+  key: 'source' | 'xml' | 'db'
+  required: boolean
+}
+
+/** The artifacts the profile demands, with the probe that answers each one. */
+function requiredArtifacts(profile: { requiresSource: boolean; requiresXml: boolean; requiresDb: boolean }): IndexRequirement[] {
+  return [
+    { key: 'source', required: profile.requiresSource },
+    { key: 'xml', required: profile.requiresXml },
+    { key: 'db', required: profile.requiresDb },
+  ]
+}
+
 /** Cheap readiness probe: existence checks only, no per-file counting. */
 export async function getInitializationReadiness(): Promise<{
   gameId: string
@@ -19,12 +33,15 @@ export async function getInitializationReadiness(): Promise<{
     fileExists(dbPath),
   ])
 
+  const satisfied: Record<IndexRequirement['key'], boolean> = {
+    source: sourceReady,
+    xml: xmlReady,
+    db: dbExists,
+  }
+
   return {
     gameId: activeGameId,
-    ready:
-      (!profile.requiresSource || sourceReady) &&
-      (!profile.requiresXml || xmlReady) &&
-      (!profile.requiresDb || dbExists),
+    ready: requiredArtifacts(profile).every(artifact => !artifact.required || satisfied[artifact.key]),
     dbExists,
   }
 }
@@ -44,12 +61,15 @@ export async function getInitializationStatus(): Promise<{
     fileExists(dbPath),
   ])
 
+  const counts: Record<IndexRequirement['key'], number> = {
+    source: sourceFiles,
+    xml: xmlFiles,
+    db: dbExists ? 1 : 0,
+  }
+
   return {
     gameId: activeGameId,
-    ready:
-      (!profile.requiresSource || sourceFiles > 0) &&
-      (!profile.requiresXml || xmlFiles > 0) &&
-      (!profile.requiresDb || dbExists),
+    ready: requiredArtifacts(profile).every(artifact => !artifact.required || counts[artifact.key] > 0),
     sourceFiles,
     xmlFiles,
     dbExists,

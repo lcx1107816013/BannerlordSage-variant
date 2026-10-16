@@ -20,13 +20,16 @@ const observedRevisionByPath = new Map<string, string>()
 /** Registers an invalidation callback; returns its unsubscribe function. */
 export function registerRuntimeInvalidator(invalidator: RuntimeInvalidator): () => void {
   invalidators.add(invalidator)
-  return () => invalidators.delete(invalidator)
+  return () => {
+    invalidators.delete(invalidator)
+  }
 }
 
 /** Watches the per-game revision file; returns true when it just changed. */
 export function ensureRuntimeRevisionFresh(gameId?: string): boolean {
   const normalizedGameId = normalizeGameId(gameId)
-  return ensureRevisionFreshForKey(normalizedGameId, getGamePaths(normalizedGameId).versionPath, observedRevisionByGame)
+  const versionPath = getGamePaths(normalizedGameId).versionPath
+  return ensureRevisionFreshForKey(normalizedGameId, versionPath, observedRevisionByGame)
 }
 
 /** Reads the current revision string for a game ('' when absent). */
@@ -68,19 +71,20 @@ function ensureRevisionFreshForKey(
   versionPath: string,
   observedRevisions: Map<string, string>
 ): boolean {
-  const revision = readRevisionFile(versionPath)
-  const previous = observedRevisions.get(observationKey)
+  const currentRevision = readRevisionFile(versionPath)
+  const previousRevision = observedRevisions.get(observationKey)
 
-  if (previous === undefined) {
-    observedRevisions.set(observationKey, revision)
+  if (previousRevision === undefined) {
+    // First sighting seeds the map; nothing that was already built is stale.
+    observedRevisions.set(observationKey, currentRevision)
     return false
   }
 
-  if (previous === revision) {
+  if (previousRevision === currentRevision) {
     return false
   }
 
-  observedRevisions.set(observationKey, revision)
+  observedRevisions.set(observationKey, currentRevision)
   for (const invalidator of invalidators) {
     invalidator()
   }

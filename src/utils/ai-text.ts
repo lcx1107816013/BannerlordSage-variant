@@ -40,8 +40,40 @@ export function renderAiTextReport(
     `result_count: ${blocks.length}`,
   ]
 
+  // The three emitters below are the only places a block writes a line, so the
+  // layout rules (blank-list placeholder, per-line indent, omission of an empty
+  // header) each live in exactly one spot.
+  const emitScalarField = (key: string, value: AiScalar): void => {
+    lines.push(`${key}: ${formatAiScalar(value)}`)
+  }
+
+  const emitListField = (listField: AiTextListField): void => {
+    lines.push(`${listField.key}:`)
+    if (listField.values.length === 0) {
+      lines.push('- none')
+      return
+    }
+
+    for (const item of listField.values) {
+      lines.push(`- ${formatAiScalar(item)}`)
+    }
+  }
+
+  const emitMultilineField = (field: AiTextMultilineField): void => {
+    lines.push(`${field.key}:`)
+    const body = field.value?.trim()
+    if (!body) {
+      lines.push('  unknown')
+      return
+    }
+
+    for (const line of body.split(/\r?\n/)) {
+      lines.push(`  ${line}`)
+    }
+  }
+
   for (const field of topFields) {
-    lines.push(`${field.key}: ${formatAiScalar(field.value)}`)
+    emitScalarField(field.key, field.value)
   }
 
   lines.push('')
@@ -53,35 +85,19 @@ export function renderAiTextReport(
     }
 
     for (const field of block.fields ?? []) {
-      lines.push(`${field.key}: ${formatAiScalar(field.value)}`)
+      emitScalarField(field.key, field.value)
     }
 
     for (const listField of block.listFields ?? []) {
-      lines.push(`${listField.key}:`)
-      if (listField.values.length === 0) {
-        lines.push('- none')
-        continue
-      }
-
-      for (const item of listField.values) {
-        lines.push(`- ${formatAiScalar(item)}`)
-      }
+      emitListField(listField)
     }
 
     for (const field of block.multilineFields ?? []) {
-      lines.push(`${field.key}:`)
-      const value = field.value?.trim()
-      if (!value) {
-        lines.push('  unknown')
-        continue
-      }
-
-      for (const line of value.split(/\r?\n/)) {
-        lines.push(`  ${line}`)
-      }
+      emitMultilineField(field)
     }
 
-    if (index < blocks.length - 1) {
+    const lastBlockIndex = blocks.length - 1
+    if (index !== lastBlockIndex) {
       lines.push('')
     }
   })
@@ -94,6 +110,7 @@ export function formatAiScalar(value: AiScalar, fallback = 'unknown'): string {
   if (value === null || value === undefined) return fallback
   if (typeof value === 'boolean') return value ? 'true' : 'false'
 
-  const text = String(value).trim()
-  return text.length > 0 ? text : fallback
+  const rendered = String(value).trim()
+  const isEmpty = rendered.length === 0
+  return isEmpty ? fallback : rendered
 }
