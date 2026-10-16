@@ -1,11 +1,17 @@
-// Skill lookup with its attribute modifiers rendered as compact
-// code|modification|value rows. Documentation text passes through verbatim.
+// Skill lookup: renders the attribute modifiers that shape a skill as compact
+// code|modification|value rows, and passes documentation text through verbatim.
 import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 
+type SkillModifier = {
+  attribCode?: string | null
+  modification?: string | null
+  value?: string | null
+}
+
 export async function getSkillData(skillId: string) {
   const db = getDb()
-  const rows = db
+  const skillRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -16,46 +22,49 @@ export async function getSkillData(skillId: string) {
     )
     .all({ $id: skillId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Skill data not found: ${skillId}` }] }
+  if (skillRecords.length === 0) {
+    return asTextReply(`Skill data not found: ${skillId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => ({
-    header: `skill_${index + 1}`,
+  const blocks: AiTextBlock[] = skillRecords.map((skillRecord, position) => ({
+    header: `skill_${position + 1}`,
     fields: [
-      { key: 'source_path', value: row.filePath },
-      { key: 'skill_id', value: row.skillId },
-      { key: 'display_name', value: row.name },
-      { key: 'modifier_count', value: row.modifierCount },
+      { key: 'source_path', value: skillRecord.filePath },
+      { key: 'skill_id', value: skillRecord.skillId },
+      { key: 'display_name', value: skillRecord.name },
+      { key: 'modifier_count', value: skillRecord.modifierCount },
     ],
     listFields: [
       {
         key: 'modifiers',
-        values: parseModifiers(row.modifiersJson).map(
-          modifier =>
-            `attrib_code=${modifier.attribCode || 'unknown'} | modification=${modifier.modification || 'unknown'} | value=${modifier.value || 'unknown'}`
-        ),
+        values: parseModifiers(skillRecord.modifiersJson).map(formatModifierRow),
       },
     ],
-    multilineFields: [{ key: 'documentation', value: row.documentation }],
+    multilineFields: [{ key: 'documentation', value: skillRecord.documentation }],
   }))
 
-  const output = renderAiTextReport('skill_data', 'query_skill_id', skillId, blocks)
-
-  return { content: [{ type: 'text' as const, text: output }] }
+  return asTextReply(renderAiTextReport('skill_data', 'query_skill_id', skillId, blocks))
 }
 
-type SkillModifier = {
-  attribCode?: string | null
-  modification?: string | null
-  value?: string | null
+/** Wraps one rendered report in the single-text-content reply shape. */
+function asTextReply(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
+
+/** One modifier as a `key=value` triple; a blank or absent part reads "unknown". */
+function formatModifierRow(modifier: SkillModifier): string {
+  const attribCode = modifier.attribCode || 'unknown'
+  const modification = modifier.modification || 'unknown'
+  const value = modifier.value || 'unknown'
+  return `attrib_code=${attribCode} | modification=${modification} | value=${value}`
 }
 
 function parseModifiers(raw: string): SkillModifier[] {
+  let decoded: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    decoded = JSON.parse(raw)
   } catch {
     return []
   }
+  return Array.isArray(decoded) ? decoded : []
 }

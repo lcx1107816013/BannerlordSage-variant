@@ -13,7 +13,7 @@ import { resolveMaybeLocalizedText } from '../utils/localization'
 
 export async function getKingdomSummary(kingdomId: string) {
   const db = getDb()
-  const rows = db
+  const kingdomRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -24,52 +24,70 @@ export async function getKingdomSummary(kingdomId: string) {
     )
     .all({ $id: kingdomId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Kingdom not found: ${kingdomId}` }] }
+  if (kingdomRecords.length === 0) {
+    return onlyText(`Kingdom not found: ${kingdomId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => {
-    const cultureName = lookupCultureName(db, row.culture)
-    const ownerName = lookupHeroName(db, row.owner)
-    const homeSettlement = lookupSettlementInfo(db, row.initialHomeSettlement)
-    const activePolicies = parseIdList(row.policyIdsJson).map(policyId =>
+  const blocks: AiTextBlock[] = kingdomRecords.map((kingdom, position) => {
+    const cultureLabel = lookupCultureName(db, kingdom.culture)
+    const rulerLabel = lookupHeroName(db, kingdom.owner)
+    const homeSettlement = lookupSettlementInfo(db, kingdom.initialHomeSettlement)
+    const policyRefs = parseIdList(kingdom.policyIdsJson).map(policyId =>
       formatReferenceLabel(policyId, lookupPolicyName(db, policyId))
     )
 
     return {
-      header: `kingdom_${index + 1}`,
+      header: `kingdom_${position + 1}`,
       fields: [
-        { key: 'source_path', value: row.filePath },
-        { key: 'kingdom_id', value: row.kingdomId },
-        { key: 'display_name', value: resolveMaybeLocalizedText(row.name) },
-        { key: 'short_name', value: row.shortName ? resolveMaybeLocalizedText(row.shortName) : null },
-        { key: 'title', value: row.title ? resolveMaybeLocalizedText(row.title) : null },
-        { key: 'ruler_title', value: row.rulerTitle ? resolveMaybeLocalizedText(row.rulerTitle) : null },
-        { key: 'culture_ref', value: formatReferenceLabel(row.culture, cultureName) },
-        { key: 'owner_hero_ref', value: formatReferenceLabel(row.owner, ownerName) },
-        { key: 'home_settlement_ref', value: formatReferenceLabel(row.initialHomeSettlement, homeSettlement?.name) },
-        { key: 'color_primary', value: row.color },
-        { key: 'color_secondary', value: row.color2 },
-        { key: 'banner_color_primary', value: row.primaryBannerColor },
-        { key: 'banner_color_secondary', value: row.secondaryBannerColor },
-        { key: 'relationship_count', value: row.relationshipCount },
-        { key: 'policy_count', value: row.policyCount },
+        { key: 'source_path', value: kingdom.filePath },
+        { key: 'kingdom_id', value: kingdom.kingdomId },
+        { key: 'display_name', value: resolveMaybeLocalizedText(kingdom.name) },
+        { key: 'short_name', value: optionalLocalized(kingdom.shortName) },
+        { key: 'title', value: optionalLocalized(kingdom.title) },
+        { key: 'ruler_title', value: optionalLocalized(kingdom.rulerTitle) },
+        { key: 'culture_ref', value: formatReferenceLabel(kingdom.culture, cultureLabel) },
+        { key: 'owner_hero_ref', value: formatReferenceLabel(kingdom.owner, rulerLabel) },
+        {
+          key: 'home_settlement_ref',
+          value: formatReferenceLabel(kingdom.initialHomeSettlement, homeSettlement?.name),
+        },
+        { key: 'color_primary', value: kingdom.color },
+        { key: 'color_secondary', value: kingdom.color2 },
+        { key: 'banner_color_primary', value: kingdom.primaryBannerColor },
+        { key: 'banner_color_secondary', value: kingdom.secondaryBannerColor },
+        { key: 'relationship_count', value: kingdom.relationshipCount },
+        { key: 'policy_count', value: kingdom.policyCount },
       ],
-      listFields: [{ key: 'active_policy_refs', values: activePolicies }],
-      multilineFields: [{ key: 'description', value: row.descriptionText ? resolveMaybeLocalizedText(row.descriptionText) : null }],
+      listFields: [{ key: 'active_policy_refs', values: policyRefs }],
+      multilineFields: [
+        { key: 'description', value: optionalLocalized(kingdom.descriptionText) },
+      ],
     }
   })
 
-  const output = renderAiTextReport('kingdom_summary', 'query_kingdom_id', kingdomId, blocks)
-
-  return { content: [{ type: 'text' as const, text: output }] }
+  return onlyText(renderAiTextReport('kingdom_summary', 'query_kingdom_id', kingdomId, blocks))
 }
 
+/** Wraps a rendered report in the single-text-content reply shape. */
+function onlyText(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
+
+/** A stored, possibly-empty text renders only when the column has a value. */
+function optionalLocalized(stored: string | null): string | null {
+  return stored ? resolveMaybeLocalizedText(stored) : null
+}
+
+/** Stored id lists are JSON arrays of strings; anything else yields no ids. */
 function parseIdList(raw: string): string[] {
+  let decoded: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    decoded = JSON.parse(raw)
   } catch {
     return []
   }
+  if (!Array.isArray(decoded)) {
+    return []
+  }
+  return decoded.filter((entry): entry is string => typeof entry === 'string')
 }

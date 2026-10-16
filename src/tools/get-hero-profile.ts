@@ -7,7 +7,7 @@ import { resolveMaybeLocalizedText } from '../utils/localization'
 
 export async function getHeroProfile(heroId: string) {
   const db = getDb()
-  const rows = db
+  const profileRows = db
     .query<any, any>(
       `
       SELECT
@@ -26,37 +26,50 @@ export async function getHeroProfile(heroId: string) {
     )
     .all({ $id: heroId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Hero not found: ${heroId}` }] }
+  if (profileRows.length === 0) {
+    return wrapText(`Hero not found: ${heroId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => ({
-    header: `hero_${index + 1}`,
+  const blocks: AiTextBlock[] = profileRows.map((profile, position) => ({
+    header: `hero_${position + 1}`,
     fields: [
-      { key: 'source_path', value: row.filePath },
-      { key: 'hero_id', value: row.heroId },
-      { key: 'display_name', value: resolveMaybeLocalizedText(row.troopName) },
-      { key: 'faction_ref', value: row.faction },
-      { key: 'clan_ref', value: row.clan },
-      { key: 'culture_ref', value: row.troopCulture },
-      { key: 'occupation', value: row.troopOccupation },
-      { key: 'alive', value: formatAlive(row.alive) },
-      { key: 'is_template', value: row.isTemplate ? 'true' : 'false' },
-      { key: 'gender', value: row.troopIsFemale ? 'female' : 'male_or_unspecified' },
-      { key: 'skill_template', value: row.troopSkillTemplate },
-      { key: 'spouse_ref', value: row.spouse },
-      { key: 'father_ref', value: row.father },
-      { key: 'mother_ref', value: row.mother },
+      { key: 'source_path', value: profile.filePath },
+      { key: 'hero_id', value: profile.heroId },
+      { key: 'display_name', value: resolveMaybeLocalizedText(profile.troopName) },
+      { key: 'faction_ref', value: profile.faction },
+      { key: 'clan_ref', value: profile.clan },
+      { key: 'culture_ref', value: profile.troopCulture },
+      { key: 'occupation', value: profile.troopOccupation },
+      { key: 'alive', value: describeAliveFlag(profile.alive) },
+      { key: 'is_template', value: profile.isTemplate ? 'true' : 'false' },
+      { key: 'gender', value: profile.troopIsFemale ? 'female' : 'male_or_unspecified' },
+      { key: 'skill_template', value: profile.troopSkillTemplate },
+      { key: 'spouse_ref', value: profile.spouse },
+      { key: 'father_ref', value: profile.father },
+      { key: 'mother_ref', value: profile.mother },
     ],
-    multilineFields: [{ key: 'biography', value: row.text ? resolveMaybeLocalizedText(row.text) : null }],
+    multilineFields: [
+      { key: 'biography', value: profile.text ? resolveMaybeLocalizedText(profile.text) : null },
+    ],
   }))
 
-  const output = renderAiTextReport('hero_profile', 'query_hero_id', heroId, blocks)
-
-  return { content: [{ type: 'text' as const, text: output }] }
+  return wrapText(renderAiTextReport('hero_profile', 'query_hero_id', heroId, blocks))
 }
 
-function formatAlive(value: string | null): string {
-  if (!value) return 'yes'
-  return value.toLowerCase() === 'false' ? 'no' : 'yes'
+/** Wraps a rendered report in the single-text-content reply shape. */
+function wrapText(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
+
+/**
+ * The stored flag is a text column that may be absent. An absent value means
+ * the hero record predates the column, so it reads as alive; only an explicit
+ * "false" (in any casing) flips it.
+ */
+function describeAliveFlag(stored: string | null): string {
+  if (!stored) {
+    return 'yes'
+  }
+  const isDead = stored.toLowerCase() === 'false'
+  return isDead ? 'no' : 'yes'
 }

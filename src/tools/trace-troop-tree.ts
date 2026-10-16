@@ -6,7 +6,7 @@ import { resolveMaybeLocalizedText } from '../utils/localization'
 
 export async function traceTroopTree(characterId: string) {
   const db = getDb()
-  const rows = db
+  const troopRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -17,41 +17,53 @@ export async function traceTroopTree(characterId: string) {
     )
     .all({ $id: characterId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Troop not found: ${characterId}` }] }
+  if (troopRecords.length === 0) {
+    return oneTextContent(`Troop not found: ${characterId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => ({
-    header: `troop_${index + 1}`,
+  const blocks: AiTextBlock[] = troopRecords.map((troop, position) => ({
+    header: `troop_${position + 1}`,
     fields: [
-      { key: 'source_path', value: row.filePath },
-      { key: 'character_id', value: row.characterId },
-      { key: 'display_name', value: resolveMaybeLocalizedText(row.name) },
-      { key: 'level', value: row.level },
-      { key: 'culture_ref', value: row.culture },
-      { key: 'occupation', value: row.occupation },
-      { key: 'skill_template', value: row.skillTemplate || 'custom' },
-      { key: 'is_hero', value: Number(row.isHero) ? 'true' : 'false' },
-      { key: 'is_female', value: Number(row.isFemale) ? 'true' : 'false' },
+      { key: 'source_path', value: troop.filePath },
+      { key: 'character_id', value: troop.characterId },
+      { key: 'display_name', value: resolveMaybeLocalizedText(troop.name) },
+      { key: 'level', value: troop.level },
+      { key: 'culture_ref', value: troop.culture },
+      { key: 'occupation', value: troop.occupation },
+      { key: 'skill_template', value: troop.skillTemplate || 'custom' },
+      { key: 'is_hero', value: flagToText(troop.isHero) },
+      { key: 'is_female', value: flagToText(troop.isFemale) },
     ],
     listFields: [
       {
         key: 'upgrade_target_ids',
-        values: parseUpgradeTargets(row.upgradeTargetsJson),
+        values: parseUpgradeTargets(troop.upgradeTargetsJson),
       },
     ],
   }))
 
-  const output = renderAiTextReport('troop_tree', 'query_character_id', characterId, blocks)
+  return oneTextContent(renderAiTextReport('troop_tree', 'query_character_id', characterId, blocks))
+}
 
-  return { content: [{ type: 'text' as const, text: output }] }
+/** Wraps a rendered report in the single-text-content reply shape. */
+function oneTextContent(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
+
+/** SQLite hands these back as 0/1, so the text form is a numeric truth test. */
+function flagToText(value: unknown): string {
+  return Number(value) ? 'true' : 'false'
 }
 
 function parseUpgradeTargets(raw: string): string[] {
+  let decoded: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    decoded = JSON.parse(raw)
   } catch {
     return []
   }
+  if (!Array.isArray(decoded)) {
+    return []
+  }
+  return decoded.filter((entry): entry is string => typeof entry === 'string')
 }

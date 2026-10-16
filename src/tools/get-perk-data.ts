@@ -7,7 +7,7 @@ import { resolveMaybeLocalizedText } from '../utils/localization'
 
 export async function getPerkData(perkId: string) {
   const db = getDb()
-  const rows = db
+  const perkRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -18,60 +18,72 @@ export async function getPerkData(perkId: string) {
     )
     .all({ $perkId: perkId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Perk not found: ${perkId}` }] }
+  if (perkRecords.length === 0) {
+    return contentWithText(`Perk not found: ${perkId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => {
-    const alternativePerkName = lookupPerkName(db, row.alternativePerkId)
+  const blocks: AiTextBlock[] = perkRecords.map((perk, position) => ({
+    header: `perk_${position + 1}`,
+    fields: [
+      { key: 'source_path', value: perk.filePath },
+      { key: 'perk_id', value: perk.perkId },
+      { key: 'source_module', value: perk.sourceModule },
+      { key: 'skill_id', value: perk.skillId },
+      { key: 'tier_index', value: perk.tierIndex },
+      { key: 'required_skill_value', value: perk.requiredSkillValue },
+      { key: 'display_name', value: perk.displayName ? resolveMaybeLocalizedText(perk.displayName) : null },
+      { key: 'alternative_perk_ref', value: describeAlternativePerk(db, perk.alternativePerkId) },
+      { key: 'primary_role', value: perk.primaryRole },
+      { key: 'primary_bonus', value: perk.primaryBonus },
+      { key: 'primary_increment_type', value: perk.primaryIncrementType },
+      { key: 'primary_troop_usage_mask', value: perk.primaryTroopUsageMask },
+      { key: 'secondary_role', value: perk.secondaryRole },
+      { key: 'secondary_bonus', value: perk.secondaryBonus },
+      { key: 'secondary_increment_type', value: perk.secondaryIncrementType },
+      { key: 'secondary_troop_usage_mask', value: perk.secondaryTroopUsageMask },
+      { key: 'source_order', value: perk.sourceOrder },
+    ],
+    multilineFields: [
+      { key: 'primary_description', value: perk.primaryDescription ? resolveMaybeLocalizedText(perk.primaryDescription) : null },
+      {
+        key: 'secondary_description',
+        value: perk.secondaryDescription ? resolveMaybeLocalizedText(perk.secondaryDescription) : null,
+      },
+    ],
+  }))
 
-    return {
-      header: `perk_${index + 1}`,
-      fields: [
-        { key: 'source_path', value: row.filePath },
-        { key: 'perk_id', value: row.perkId },
-        { key: 'source_module', value: row.sourceModule },
-        { key: 'skill_id', value: row.skillId },
-        { key: 'tier_index', value: row.tierIndex },
-        { key: 'required_skill_value', value: row.requiredSkillValue },
-        { key: 'display_name', value: row.displayName ? resolveMaybeLocalizedText(row.displayName) : null },
-        {
-          key: 'alternative_perk_ref',
-          value: row.alternativePerkId
-            ? alternativePerkName
-              ? `${resolveMaybeLocalizedText(alternativePerkName)} [${row.alternativePerkId}]`
-              : row.alternativePerkId
-            : null,
-        },
-        { key: 'primary_role', value: row.primaryRole },
-        { key: 'primary_bonus', value: row.primaryBonus },
-        { key: 'primary_increment_type', value: row.primaryIncrementType },
-        { key: 'primary_troop_usage_mask', value: row.primaryTroopUsageMask },
-        { key: 'secondary_role', value: row.secondaryRole },
-        { key: 'secondary_bonus', value: row.secondaryBonus },
-        { key: 'secondary_increment_type', value: row.secondaryIncrementType },
-        { key: 'secondary_troop_usage_mask', value: row.secondaryTroopUsageMask },
-        { key: 'source_order', value: row.sourceOrder },
-      ],
-      multilineFields: [
-        { key: 'primary_description', value: row.primaryDescription ? resolveMaybeLocalizedText(row.primaryDescription) : null },
-        {
-          key: 'secondary_description',
-          value: row.secondaryDescription ? resolveMaybeLocalizedText(row.secondaryDescription) : null,
-        },
-      ],
-    }
-  })
+  return contentWithText(renderAiTextReport('perk_data', 'query_perk_id', perkId, blocks))
+}
 
-  const output = renderAiTextReport('perk_data', 'query_perk_id', perkId, blocks)
+/** Wraps a rendered report in the single-text-content reply shape. */
+function contentWithText(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
 
-  return { content: [{ type: 'text' as const, text: output }] }
+/**
+ * The alternative perk renders as "Display Name [raw_id]" when the partner
+ * perk has a display name, as the bare raw id when it does not, and as null
+ * when this perk declares no alternative at all.
+ */
+function describeAlternativePerk(db: ReturnType<typeof getDb>, alternativePerkId: string | null): string | null {
+  if (!alternativePerkId) {
+    return null
+  }
+
+  const partnerName = lookupPerkName(db, alternativePerkId)
+  if (partnerName) {
+    return `${resolveMaybeLocalizedText(partnerName)} [${alternativePerkId}]`
+  }
+
+  return alternativePerkId
 }
 
 function lookupPerkName(db: ReturnType<typeof getDb>, perkId: string | null): string | null {
-  if (!perkId) return null
+  if (!perkId) {
+    return null
+  }
 
-  const row = db
+  const match = db
     .query<{ displayName: string | null } | null, { $perkId: string }>(
       `
       SELECT displayName
@@ -82,5 +94,5 @@ function lookupPerkName(db: ReturnType<typeof getDb>, perkId: string | null): st
     )
     .get({ $perkId: perkId })
 
-  return row?.displayName ?? null
+  return match?.displayName ?? null
 }

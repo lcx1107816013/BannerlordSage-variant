@@ -7,7 +7,7 @@ import { resolveMaybeLocalizedText } from '../utils/localization'
 
 export async function getCultureSummary(cultureId: string) {
   const db = getDb()
-  const rows = db
+  const cultureRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -21,47 +21,61 @@ export async function getCultureSummary(cultureId: string) {
     )
     .all({ $id: cultureId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Culture not found: ${cultureId}` }] }
+  if (cultureRecords.length === 0) {
+    return textOnly(`Culture not found: ${cultureId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => {
-    const defaultPolicies = parseIdList(row.defaultPolicyIdsJson).map(policyId =>
-      formatReferenceLabel(policyId, lookupPolicyName(db, policyId))
-    )
+  const blocks: AiTextBlock[] = cultureRecords.map((culture, position) => ({
+    header: `culture_${position + 1}`,
+    fields: [
+      { key: 'source_path', value: culture.filePath },
+      { key: 'culture_id', value: culture.cultureId },
+      { key: 'display_name', value: resolveMaybeLocalizedText(culture.name) },
+      { key: 'is_main_culture', value: culture.isMainCulture ? 'true' : 'false' },
+      { key: 'can_have_settlement', value: culture.canHaveSettlement },
+      { key: 'color_primary', value: culture.color },
+      { key: 'color_secondary', value: culture.color2 },
+      { key: 'basic_troop_ref', value: culture.basicTroop },
+      { key: 'elite_basic_troop_ref', value: culture.eliteBasicTroop },
+      { key: 'board_game_type', value: culture.boardGameType },
+      { key: 'male_name_count', value: culture.maleNameCount },
+      { key: 'female_name_count', value: culture.femaleNameCount },
+      { key: 'default_policy_count', value: culture.defaultPolicyCount },
+    ],
+    listFields: [
+      {
+        key: 'default_policy_refs',
+        values: resolvePolicyRefs(db, culture.defaultPolicyIdsJson),
+      },
+    ],
+    multilineFields: [
+      { key: 'description', value: culture.descriptionText ? resolveMaybeLocalizedText(culture.descriptionText) : null },
+    ],
+  }))
 
-    return {
-      header: `culture_${index + 1}`,
-      fields: [
-        { key: 'source_path', value: row.filePath },
-        { key: 'culture_id', value: row.cultureId },
-        { key: 'display_name', value: resolveMaybeLocalizedText(row.name) },
-        { key: 'is_main_culture', value: row.isMainCulture ? 'true' : 'false' },
-        { key: 'can_have_settlement', value: row.canHaveSettlement },
-        { key: 'color_primary', value: row.color },
-        { key: 'color_secondary', value: row.color2 },
-        { key: 'basic_troop_ref', value: row.basicTroop },
-        { key: 'elite_basic_troop_ref', value: row.eliteBasicTroop },
-        { key: 'board_game_type', value: row.boardGameType },
-        { key: 'male_name_count', value: row.maleNameCount },
-        { key: 'female_name_count', value: row.femaleNameCount },
-        { key: 'default_policy_count', value: row.defaultPolicyCount },
-      ],
-      listFields: [{ key: 'default_policy_refs', values: defaultPolicies }],
-      multilineFields: [{ key: 'description', value: row.descriptionText ? resolveMaybeLocalizedText(row.descriptionText) : null }],
-    }
-  })
-
-  const output = renderAiTextReport('culture_summary', 'query_culture_id', cultureId, blocks)
-
-  return { content: [{ type: 'text' as const, text: output }] }
+  return textOnly(renderAiTextReport('culture_summary', 'query_culture_id', cultureId, blocks))
 }
 
+/** Wraps a rendered report in the single-text-content reply shape. */
+function textOnly(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
+}
+
+/** Maps each stored policy id to its display label, in stored order. */
+function resolvePolicyRefs(db: ReturnType<typeof getDb>, rawIdsJson: string): string[] {
+  return parseIdList(rawIdsJson).map(policyId => formatReferenceLabel(policyId, lookupPolicyName(db, policyId)))
+}
+
+/** Stored id lists are JSON arrays; anything unparseable or non-string drops out. */
 function parseIdList(raw: string): string[] {
+  let decoded: unknown
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    decoded = JSON.parse(raw)
   } catch {
     return []
   }
+  if (!Array.isArray(decoded)) {
+    return []
+  }
+  return decoded.filter((entry): entry is string => typeof entry === 'string')
 }

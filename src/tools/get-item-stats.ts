@@ -5,9 +5,60 @@ import { getDb } from '../utils/db'
 import { AiTextBlock, renderAiTextReport } from '../utils/ai-text'
 import { resolveMaybeLocalizedText } from '../utils/localization'
 
+// The stat columns are one long ordered list; the order is the report's, so
+// it stays literal rather than being derived.
+const STAT_COLUMNS: string[] = [
+  'itemType',
+  'weight',
+  'value',
+  'weaponLength',
+  'swingDamage',
+  'swingDamageType',
+  'thrustDamage',
+  'thrustDamageType',
+  'speedRating',
+  'balanceOrHitPoints',
+  'headArmor',
+  'bodyArmor',
+  'legArmor',
+  'armArmor',
+  'horseChargeDamage',
+  'horseSpeed',
+  'horseManeuver',
+  'tier',
+  'pieceType',
+  'length',
+  'materialCount',
+]
+
+// The report's snake_case key for each column above, positionally aligned.
+const STAT_KEYS: string[] = [
+  'item_type',
+  'weight',
+  'value',
+  'weapon_length',
+  'swing_damage',
+  'swing_damage_type',
+  'thrust_damage',
+  'thrust_damage_type',
+  'speed_rating',
+  'balance_or_hit_points',
+  'head_armor',
+  'body_armor',
+  'leg_armor',
+  'arm_armor',
+  'horse_charge_damage',
+  'horse_speed',
+  'horse_maneuver',
+  'tier',
+  'piece_type',
+  'piece_length',
+  'material_count',
+]
+
 export async function getItemStats(itemId: string) {
   const db = getDb()
-  const rows = db
+  const itemRecords = db
     .query<any, any>(
       `
       SELECT *
@@ -18,42 +69,25 @@ export async function getItemStats(itemId: string) {
     )
     .all({ $id: itemId })
 
-  if (rows.length === 0) {
-    return { content: [{ type: 'text' as const, text: `Item or crafting piece not found: ${itemId}` }] }
+  if (itemRecords.length === 0) {
+    return replyWithText(`Item or crafting piece not found: ${itemId}`)
   }
 
-  const blocks: AiTextBlock[] = rows.map((row, index) => ({
-    header: `${row.entityKind || 'entity'}_${index + 1}`,
+  const blocks: AiTextBlock[] = itemRecords.map((item, position) => ({
+    header: `${item.entityKind || 'entity'}_${position + 1}`,
     fields: [
-      { key: 'source_path', value: row.filePath },
-      { key: 'entity_kind', value: row.entityKind },
-      { key: 'entity_id', value: row.entityId },
-      { key: 'display_name', value: resolveMaybeLocalizedText(row.name) },
-      { key: 'item_type', value: row.itemType },
-      { key: 'weight', value: row.weight },
-      { key: 'value', value: row.value },
-      { key: 'weapon_length', value: row.weaponLength },
-      { key: 'swing_damage', value: row.swingDamage },
-      { key: 'swing_damage_type', value: row.swingDamageType },
-      { key: 'thrust_damage', value: row.thrustDamage },
-      { key: 'thrust_damage_type', value: row.thrustDamageType },
-      { key: 'speed_rating', value: row.speedRating },
-      { key: 'balance_or_hit_points', value: row.balanceOrHitPoints },
-      { key: 'head_armor', value: row.headArmor },
-      { key: 'body_armor', value: row.bodyArmor },
-      { key: 'leg_armor', value: row.legArmor },
-      { key: 'arm_armor', value: row.armArmor },
-      { key: 'horse_charge_damage', value: row.horseChargeDamage },
-      { key: 'horse_speed', value: row.horseSpeed },
-      { key: 'horse_maneuver', value: row.horseManeuver },
-      { key: 'tier', value: row.tier },
-      { key: 'piece_type', value: row.pieceType },
-      { key: 'piece_length', value: row.length },
-      { key: 'material_count', value: row.materialCount },
+      { key: 'source_path', value: item.filePath },
+      { key: 'entity_kind', value: item.entityKind },
+      { key: 'entity_id', value: item.entityId },
+      { key: 'display_name', value: resolveMaybeLocalizedText(item.name) },
+      ...STAT_KEYS.map((key, index) => ({ key, value: item[STAT_COLUMNS[index]] })),
     ],
   }))
 
-  const output = renderAiTextReport('item_stats', 'query_item_id', itemId, blocks)
+  return replyWithText(renderAiTextReport('item_stats', 'query_item_id', itemId, blocks))
+}
 
-  return { content: [{ type: 'text' as const, text: output }] }
+/** Wraps a rendered report in the single-text-content reply shape. */
+function replyWithText(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
 }
