@@ -95,6 +95,85 @@ OK    src/tools/foo.ts             (5 cases, ... [★ 3/5 UNEXPECTED both-side t
 `readLocalModType` 打开的是 `workspace.dbPath`；注入的 summary 漏了它就报同一个
 "anonymous database" 错。
 
+### 陷阱 3：语料库自己的构造 bug —— 全绿，且每个 case 都在测 `undefined`
+
+**这一类最危险**，因为它不报错、不抛异常、OK 行漂亮，而**所有 case 根本没碰到被测代码**。
+
+`diff_utils_units.mjs` 的 render 语料第一版写成这样：
+
+```js
+const renderCorpus = [
+    [{}, []],                                    // ← [第一个 block, topFields]
+    [{ header: 'h' }, [{ key: 'top', value: 'x' }]],
+]
+for (const [blocks, topFields] of renderCorpus) {
+    await run(..., side => renderCase(side, blocks, topFields))
+}
+```
+
+`for (const [blocks, topFields] of ...)` 是**解构元组**。于是 `blocks` 拿到的是
+`{}`（一个**对象**，不是数组），`renderAiTextReport` 在它上面调 `.forEach`：
+
+```
+TypeError: blocks.forEach is not a function
+```
+
+**两边抛同一个错 ⇒ 比较"相等" ⇒ 全绿。** 这与陷阱 1 同源（恒真通过），但成因不同：
+陷阱 1 是输入本身就走错误路径，这里是**harness 自己的代码写错了**。
+
+暴露它的是**反向验证**：给 `ai-text.ts` 注入一个必然可观察的变异
+（把多行字段的空判定从 trim 后的文本改回原始值），harness **仍然全绿** ——
+一个必然可观察的 bug 无法被抓到，只可能是这个 case 没真跑。
+
+修法是把语料改成**带名字的对象**，让结构错误在编译期/阅读期就可见：
+
+```js
+const renderCorpus = [
+    { label: 'no blocks', blocks: [], topFields: [] },
+    { label: '…', blocks: [{ header: 'h' }], topFields: [{ key: 'top', value: 'x' }] },
+]
+for (const entry of renderCorpus) {
+    await run(`renderAiTextReport(${entry.label})`, side => renderCase(side, entry.blocks, entry.topFields))
+}
+```
+
+> **判据**：**一个必然可观察的变异没被抓到 = 先怀疑 harness，不要怀疑变异。**
+> 这条也是"不能删掉存活变异"的理由 —— 上面这个 case 里，那两条存活变异恰好是
+> harness 唯一的报警信号。删掉它们，"0 存活"就会盖住一个**完全失效**的语料库。
+
+### 陷阱 4：语料库"看着覆盖了"，其实缺了能区分的那个输入
+
+反向验证里另外两条存活，**不是** harness 的 bug，而是**语料库的覆盖缺口**，
+两条都是靠"注入必然可观察的变异却全绿"才发现的：
+
+| 存活变异 | 缺口 | 补上的输入 |
+|---|---|---|
+| `if (!body)` → `if (!field.value)`（多行字段用**原始值**判空） | 语料只有 `''` 与 `null` —— 两者**两种写法都为假**，区分不出来 | 纯空白值：`'   '`、`'\t\n '`、`'\u00a0'`、`'\ufeff'` |
+| `resolveEffectiveSourceRoot` 的"根本身就叫 `src`"规则 → 关闭 | 语料里的树**要么**根叫 `src`、**要么**有嵌套 `src`，两条规则返回同一个答案 | 一棵**既叫 `src` 又含嵌套 `src`** 的树 |
+
+> 反过来说：**存活变异必须先假设"我的语料库漏了"，只有当枚举证明不存在反例时才写 EQUIVALENT。
+> 上面那两条我一开始都以为是等价变异，枚举之后发现都是真缺口。**
+
+---
+
+## ★ 等价变异的记录方式（不许删）
+
+`mutations.sh` 会注入若干缺陷并断言 harness 变红。其中有 3 条**判为等价**，
+它们**保留在列表里、显式打印 EQUIVALENT 并附枚举论证**，而不是删掉：
+
+| 等价变异 | 枚举论证 |
+|---|---|
+| `env`: `activeGameId` 改成重新读环境变量 | 没有消费方在 import 之后改 `BANNERSAGE_GAME` |
+| `ai-text`: 布尔分支写成 `v && 'a' \|\| 'b'` | 该分支被 `typeof value === 'boolean'` 守住，定义域恰好是 `{true,false}`，两种写法在域内一致 |
+| `entity-resolver`: `find` → `findLast` | harness **自己断言**没有任何调用点传入"互为前缀"的 prefix 集合；该断言一旦失效 harness 立刻报错 |
+
+**为什么不能删**：删掉存活变异会让"0 存活"变成**误导数字** ——
+那个数字会被当成证据。这是本项目已经栽过的坑（见 `server-go/tools/parity/README.md`）。
+
+第三条尤其值得抄：**把"为什么不构成差异"变成一个 harness 里的断言**，
+等价性就不会随代码演进而静默失效。
+
+
 ### 关于 indexer 的 mock
 
 `ensureLocalModSourceIndex` 会跑 Roslyn indexer（`dotnet build` + `run`）。
@@ -152,16 +231,25 @@ git diff --stat server-go/tools/parity/fixtures.json   # 必须为空
 `diff_tools.mjs` 自建的语料在 `tools/rewrite-verify/.tmp/`（已 gitignore），
 **不写进 `server-go/`**。
 
-### `restore-modsource-fixture-db.mjs` 为什么存在
+### `restore-modsource-fixture-db.mjs` 为什么存在 —— **已过时**
 
-`gen_modsourceindex_fixtures.mjs` 先 `DELETE` 三张表、之后才 `CREATE` 它们，
+> **现状：该生成器已修（`12933ab`），本脚本成为历史记录，不再需要。**
+> 生成器现在 **CREATE 在前、DELETE 在后**，因此在新克隆上也能自足运行：
+> ```bash
+> rm -rf dist/mod-sources && bun server-go/tools/parity/gen_modsourceindex_fixtures.mjs
+> # exit 0，9 cases，与金标逐字节相同；连跑两次幂等
+> ```
+> 该脚本保留在磁盘上是为了留下下面这段推理，**不应再被引用**。
+
+`gen_modsourceindex_fixtures.mjs` 原先是先 `DELETE` 三张表、之后才 `CREATE` 它们，
 所以它**依赖这三张表已经存在**于 `dist/mod-sources/<id>/mod-source.db`。
 那条路径被 `.gitignore` 整目录排除（`*.db` 的取反只覆盖
 `server-go/tools/parity/fixtures/*.db`），是**纯本地状态**，新克隆上并不存在；
-在新克隆上该生成器会死在第一个 `DELETE`（`no such table: csharp_types`）。
+在新克隆上该生成器死在第一个 `DELETE`（`no such table: csharp_types`）。
 
-**这是生成器既有的脆弱点，不是本次重写造成的**，且不在本阶段范围内（修它是改
-`server-go/`）。该脚本用生成器自己的 DDL 把前置条件重建出来。
+**这条缺陷由两个 teammate 从不同角度独立撞到**（一个走 `src/utils` 的重写验证，
+一个走 `src/tools`），基线 `8311c9a` 上同样复现 —— 独立复现两次说明它是真问题。
+
 
 ---
 
@@ -171,5 +259,19 @@ git diff --stat server-go/tools/parity/fixtures.json   # 必须为空
 |---|---|---|
 | `diff_gameplay.mjs` | 十个 gameplay getter（对着 `bannerlord-fixture-gameplay` 库） | 51 |
 | `diff_tools.mjs` | `list-directory`、`read-file`、6 个 mod-source 包装 | 40 |
+| `diff_utils_units.mjs` | 14 个 `src/utils` 单元的导出面（纯函数 + 需要 db 的部分） | 196 值 |
+| `mutations.sh` | **反向验证**：注入 16 个缺陷，断言上面这个 runner 变红 | 16 注入 |
 
 每个 case 都对**两个版本**各跑一次。
+
+`diff_utils_units.mjs` 与另外两个的差别：它不重写 import 深度，而是把基线整棵树
+`git archive` 到 `D:/Documents/_workutils/base`，**两份独立 checkout 并排 import**。
+它比对 196 个**返回值**而非渲染文本，并且带两条**自断言**：
+
+- 语料库里必须存在"互为前缀"的 prefix 集合，否则 `find`/`findLast` 的等价性主张不成立（会 FAIL）
+- `undefined` 与 `null` 在序列化前**分开记法**，因为"字段缺失"与"字段为 null"是两种输出
+
+配套：`inject.mjs` 单点替换注入器；`which_workspace.mjs` 回答
+"`dist/mod-sources/<id>` 这个缓存目录归哪个 source root 所有" ——
+在动手清理任何缓存之前先跑它，避免命中真实索引路径（见 `server-go/tools/parity/README.md` F19）。
+
