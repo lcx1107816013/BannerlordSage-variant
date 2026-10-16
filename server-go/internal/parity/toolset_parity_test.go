@@ -256,6 +256,21 @@ func TestRuntimeCheckInvalidPathsAreAbsence(t *testing.T) {
 // suite claimed. `New-Item -ItemType Junction` needs no elevation; SYMLINKS do. That distinction is
 // why the case is here at all.
 func TestRuntimeCheckFollowsDirectoryJunctions(t *testing.T) {
+	// ★ OPT-IN, AND THE REASON IS OPERATIONAL: creating a junction IS the "program is creating a
+	// file link" pattern that real-time security software blocks, and `go test` compiles into a NEW
+	// temp path on every run — so no allow-list entry sticks and EVERY run prompts again. A mutation
+	// sweep runs the suite once per injection, which turned a deliberate verification into a prompt
+	// storm (the user reported "一直在弹窗" over a security box reading "...\b001\parity.test.exe").
+	//
+	//     BLORE_TEST_JUNCTION_TESTS=1 go test ./internal/parity/ -run Junction -v
+	//
+	// Without it the test SKIPS before creating anything, so ordinary `go test ./...` and CI never
+	// ask for a link. The measurement this protects stays recorded in runtimecheck's walkFiles
+	// comment, and the mutation harness reports the branch as OPT-IN SKIPPED — not a survivor that
+	// claims a coverage gap, and not a deletion that hides the branch.
+	if os.Getenv("BLORE_TEST_JUNCTION_TESTS") != "1" {
+		t.Skip("opt-in: creating a junction trips security-software prompts; set BLORE_TEST_JUNCTION_TESTS=1")
+	}
 	root := t.TempDir()
 	writeFile := func(rel, content string) {
 		t.Helper()
@@ -303,6 +318,11 @@ func TestRuntimeCheckFollowsDirectoryJunctions(t *testing.T) {
 // A junction satisfies neither (bun reports both false for one), so it is SKIPPED — verified A/B, both
 // sides returning 2 files for a tree holding a junction to a directory with one markdown file.
 func TestOwnDocsSkipsDirectoryJunctions(t *testing.T) {
+	// Same opt-in gate as the runtime-check junction test above: the expense is the LINK, not the
+	// walker, and a link created per run is what security software keeps flagging.
+	if os.Getenv("BLORE_TEST_JUNCTION_TESTS") != "1" {
+		t.Skip("opt-in: creating a junction trips security-software prompts; set BLORE_TEST_JUNCTION_TESTS=1")
+	}
 	root := t.TempDir()
 	writeFile := func(rel, content string) {
 		t.Helper()
@@ -317,7 +337,13 @@ func TestOwnDocsSkipsDirectoryJunctions(t *testing.T) {
 	writeFile("plain/a.md", "# A\n## S\nbody\n")
 	writeFile("real/c.md", "# C\n## R\nbody\n")
 
-	junction := filepath.Join(root, "linked")
+	// ★ THE JUNCTION IS NAMED `linked.md` ON PURPOSE — the suffix is what makes the branch
+	// observable. The mutant this test guards weakens `if !entry.Type().IsRegular() { continue }`
+	// to `if false`, letting the entry REACH THE EXTENSION TEST: named `linked` it is rejected
+	// there and the mutant survives the suite; named `linked.md` it is COLLECTED and the mutant's
+	// file count becomes 3 against the expected 2. (This rename has not had its opt-in run yet —
+	// creating a junction trips a security prompt; the skip-through case itself was A/B-verified.)
+	junction := filepath.Join(root, "linked.md")
 	if err := createJunction(junction, filepath.Join(root, "real")); err != nil {
 		t.Skipf("cannot create a directory junction on this host (%v)", err)
 	}
@@ -330,7 +356,7 @@ func TestOwnDocsSkipsDirectoryJunctions(t *testing.T) {
 			names = append(names, filepath.ToSlash(rel))
 		}
 		t.Errorf("ListOwnDocFiles returned %d files (%v), want 2 — own-docs does NOT descend through "+
-			"junctions, unlike the runtime-check walker", len(files), names)
+			"junctions and must not collect one as a document, unlike the runtime-check walker", len(files), names)
 	}
 }
 

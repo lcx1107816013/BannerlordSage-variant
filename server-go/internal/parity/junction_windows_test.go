@@ -23,6 +23,12 @@ import (
 // caller hands in a relative path: the helper spawns a CHILD PROCESS whose working directory is not
 // the caller's, so a relative target resolves somewhere else and the command fails. That is what made
 // the runtime-check junction test SKIP while the same helper worked in a hand-written probe.
+//
+// ★ THE CALLERS ARE OPT-IN, AND THE HELPER IS THE REASON. Creating a link is exactly what real-time
+// security software watches for, and because `go test` builds into a fresh temp path each run, a
+// prompt reappears every time — a sweep multiplies that by its injection count. The gate lives in
+// the TESTS (BLORE_TEST_JUNCTION_TESTS=1); when they do run and creation is blocked, they SKIP
+// instead of failing, so either answer to the prompt leaves the suite honest.
 func createJunction(link, target string) error {
 	link, err := filepath.Abs(link)
 	if err != nil {
