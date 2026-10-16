@@ -30,22 +30,36 @@ export type ModSourceWorkspace = ModSourcePaths & {
 /** Directory names never descended into when walking mod sources. */
 export const MOD_SOURCE_IGNORED_DIRECTORY_NAMES = ['.git', '.idea', '.vs', '.vscode', 'bin', 'obj'] as const
 
+const IGNORED_DIRECTORY_LOOKUP: ReadonlySet<string> = new Set(MOD_SOURCE_IGNORED_DIRECTORY_NAMES)
+
+/** Environment spellings of the configured source directory, most specific first. */
+const MOD_SOURCE_DIR_ENV_KEYS = [
+  'BANNERSAGE_BANNERLORD_MOD_SOURCE_DIR',
+  'BANNERSAGE_MOD_SOURCE_DIR',
+] as const
+
 /** The configured source directory from the environment, if any. */
 export function getConfiguredModSourceDir(): string | undefined {
-  return (
-    process.env.BANNERSAGE_BANNERLORD_MOD_SOURCE_DIR ||
-    process.env.BANNERSAGE_MOD_SOURCE_DIR
-  )?.trim()
+  for (const envKey of MOD_SOURCE_DIR_ENV_KEYS) {
+    const configured = process.env[envKey]
+    if (configured) {
+      return configured.trim()
+    }
+  }
+
+  return undefined
 }
 
 /** Resolves (and creates the cache for) the configured workspace. */
 export async function ensureModSourceDir(candidate?: string): Promise<string> {
-  return (await resolveModSourceWorkspace(candidate)).sourceRoot
+  const paths = await resolveModSourceWorkspace(candidate)
+  return paths.sourceRoot
 }
 
 /** Explicit candidate wins over the environment; blank everywhere throws. */
 export function resolveModSourceDir(candidate?: string): string {
-  const configured = candidate?.trim() || getConfiguredModSourceDir()
+  const trimmedCandidate = candidate?.trim()
+  const configured = trimmedCandidate || getConfiguredModSourceDir()
   if (!configured) {
     throw new Error('Missing mod source directory. Pass --source-dir "<path>" or set BANNERSAGE_MOD_SOURCE_DIR.')
   }
@@ -57,7 +71,7 @@ export function resolveModSourceDir(candidate?: string): string {
  * root, create the cache directory. */
 export async function resolveModSourceWorkspace(candidate?: string): Promise<ModSourceWorkspace> {
   const workspaceRoot = resolveModSourceDir(candidate)
-  const workspaceStats = await safeStat(workspaceRoot)
+  const workspaceStats = await statOrNull(workspaceRoot)
   if (!workspaceStats?.isDirectory()) {
     throw new Error(`Mod source path is not a directory: ${workspaceRoot}`)
   }
@@ -75,12 +89,11 @@ export async function resolveModSourceWorkspace(candidate?: string): Promise<Mod
 
 export function getModSourcePaths(sourceDir: string): ModSourcePaths {
   const normalizedSourceDir = resolve(sourceDir)
-  const workspaceId = createHash('sha1')
-    .update(normalizedSourceDir.replaceAll('\\', '/').toLowerCase())
-    .digest('hex')
-    .slice(0, 12)
+  const workspaceId = hashWorkspaceSourceRoot(normalizedSourceDir)
   const workspacePath = join(distPath, 'mod-sources', workspaceId)
 
+  // sourceDir == sourceRoot by construction: the caller resolves the effective
+  // root before asking for paths, so both fields describe the same directory.
   return {
     sourceDir: normalizedSourceDir,
     sourceRoot: normalizedSourceDir,
@@ -91,6 +104,12 @@ export function getModSourcePaths(sourceDir: string): ModSourcePaths {
     csharpAstDumpPath: join(workspacePath, 'csharp-index.json'),
     versionPath: join(workspacePath, 'Version.txt'),
   }
+}
+
+/** 12 hex characters of sha1 over the case-folded, slash-normalized root. */
+function hashWorkspaceSourceRoot(normalizedSourceDir: string): string {
+  const canonical = normalizedSourceDir.replaceAll('\\', '/').toLowerCase()
+  return createHash('sha1').update(canonical).digest('hex').slice(0, 12)
 }
 
 /** Counts `.cs` files under the root, honoring the skip list. */
@@ -120,34 +139,36 @@ export async function* walkModSourceCSharpFiles(dir: string): AsyncGenerator<str
       continue
     }
 
-    if (entry.isFile() && entry.name.toLowerCase().endsWith('.cs')) {
+    const isCSharpFile = entry.isFile() && entry.name.toLowerCase().endsWith('.cs')
+    if (isCSharpFile) {
       yield fullPath
     }
   }
 }
 
 export function shouldSkipModSourceDirectory(name: string): boolean {
-  const normalized = name.trim().toLowerCase()
-  return MOD_SOURCE_IGNORED_DIRECTORY_NAMES.some(candidate => candidate === normalized)
+  return IGNORED_DIRECTORY_LOOKUP.has(name.trim().toLowerCase())
 }
 
 // A root named `src` is the source root itself; otherwise a nested `src`
 // directory wins over the bare root (solution layout convention).
 async function resolveEffectiveSourceRoot(workspaceRoot: string): Promise<string> {
-  if (basename(workspaceRoot).toLowerCase() === 'src') {
+  const isAlreadySourceRoot = basename(workspaceRoot).toLowerCase() === 'src'
+  if (isAlreadySourceRoot) {
     return workspaceRoot
   }
 
-  const srcCandidate = join(workspaceRoot, 'src')
-  const sourceStats = await safeStat(srcCandidate)
-  if (sourceStats?.isDirectory()) {
-    return srcCandidate
+  const nestedSourceRoot = join(workspaceRoot, 'src')
+  const nestedStats = await statOrNull(nestedSourceRoot)
+  if (nestedStats?.isDirectory()) {
+    return nestedSourceRoot
   }
 
   return workspaceRoot
 }
 
-async function safeStat(path: string) {
+/** `stat` with every failure folded into null. */
+async function statOrNull(path: string) {
   try {
     return await stat(path)
   } catch {

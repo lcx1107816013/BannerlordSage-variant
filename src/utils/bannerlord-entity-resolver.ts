@@ -34,12 +34,23 @@ export type BannerlordSettlementInfo = {
 /** Removes the first matching reference prefix; blank input yields null. */
 export function normalizeReference(value: string | null | undefined, prefixes: string[]): string | null {
   if (!value) return null
-  for (const prefix of prefixes) {
-    if (value.startsWith(prefix)) {
-      return value.slice(prefix.length)
-    }
+
+  const matchingPrefix = prefixes.find(prefix => value.startsWith(prefix))
+  if (matchingPrefix) {
+    return value.slice(matchingPrefix.length)
   }
+
   return value
+}
+
+/**
+ * Runs a single-row lookup and returns null for "no row". Every query below
+ * ends in `LIMIT 1` and is allowed to return nothing, so the `?? null`
+ * decision lives here instead of at seven call sites.
+ */
+function firstRowOrNull<TRow>(db: Database, sql: string, $id: string): TRow | null {
+  const row = db.query<TRow | null, { $id: string }>(sql).get({ $id })
+  return row ?? null
 }
 
 /** Culture display name; prefers cultures with more name data available. */
@@ -47,9 +58,9 @@ export function lookupCultureName(db: Database, reference: string | null | undef
   const cultureId = normalizeReference(reference, ['Culture.'])
   if (!cultureId) return null
 
-  const row = db
-    .query<{ name: string | null } | null, { $id: string }>(
-      `
+  const row = firstRowOrNull<{ name: string | null }>(
+    db,
+    `
       SELECT name
       FROM bannerlord_cultures
       WHERE cultureId = $id
@@ -58,9 +69,9 @@ export function lookupCultureName(db: Database, reference: string | null | undef
         CASE WHEN descriptionText IS NOT NULL AND descriptionText <> '' THEN 0 ELSE 1 END,
         filePath
       LIMIT 1
-    `
-    )
-    .get({ $id: cultureId })
+    `,
+    cultureId
+  )
 
   return row?.name ?? null
 }
@@ -71,17 +82,17 @@ export function lookupHeroName(db: Database, reference: string | null | undefine
   const heroId = normalizeReference(reference, ['Hero.', 'NPCCharacter.'])
   if (!heroId) return null
 
-  const row = db
-    .query<{ name: string | null } | null, { $id: string }>(
-      `
+  const row = firstRowOrNull<{ name: string | null }>(
+    db,
+    `
       SELECT name
       FROM bannerlord_troops
       WHERE characterId = $id
       ORDER BY filePath
       LIMIT 1
-    `
-    )
-    .get({ $id: heroId })
+    `,
+    heroId
+  )
 
   return row?.name ?? null
 }
@@ -91,10 +102,9 @@ export function lookupClanInfo(db: Database, reference: string | null | undefine
   const clanId = normalizeReference(reference, ['Faction.', 'Clan.'])
   if (!clanId) return null
 
-  return (
-    db
-      .query<BannerlordClanInfo | null, { $id: string }>(
-        `
+  return firstRowOrNull<BannerlordClanInfo>(
+    db,
+    `
         SELECT clanId, name, superFaction, isNoble, isMinorFaction, isBandit, isMercenary
         FROM bannerlord_clans
         WHERE clanId = $id
@@ -102,9 +112,8 @@ export function lookupClanInfo(db: Database, reference: string | null | undefine
           CASE WHEN isNoble = 1 THEN 0 WHEN isMinorFaction = 1 THEN 1 ELSE 2 END,
           filePath
         LIMIT 1
-      `
-      )
-      .get({ $id: clanId }) ?? null
+      `,
+    clanId
   )
 }
 
@@ -112,18 +121,16 @@ export function lookupKingdomInfo(db: Database, reference: string | null | undef
   const kingdomId = normalizeReference(reference, ['Faction.', 'Kingdom.'])
   if (!kingdomId) return null
 
-  return (
-    db
-      .query<BannerlordKingdomInfo | null, { $id: string }>(
-        `
+  return firstRowOrNull<BannerlordKingdomInfo>(
+    db,
+    `
         SELECT kingdomId, name
         FROM bannerlord_kingdoms
         WHERE kingdomId = $id
         ORDER BY filePath
         LIMIT 1
-      `
-      )
-      .get({ $id: kingdomId }) ?? null
+      `,
+    kingdomId
   )
 }
 
@@ -131,16 +138,16 @@ export function lookupPolicyName(db: Database, reference: string | null | undefi
   const policyId = normalizeBannerlordPolicyId(reference)
   if (!policyId) return null
 
-  const row = db
-    .query<{ displayName: string | null } | null, { $id: string }>(
-      `
+  const row = firstRowOrNull<{ displayName: string | null }>(
+    db,
+    `
       SELECT displayName
       FROM bannerlord_policies
       WHERE policyId = $id
       LIMIT 1
-    `
-    )
-    .get({ $id: policyId })
+    `,
+    policyId
+  )
 
   return row?.displayName ?? null
 }
@@ -149,18 +156,16 @@ export function lookupSettlementInfo(db: Database, reference: string | null | un
   const settlementId = normalizeReference(reference, ['Settlement.'])
   if (!settlementId) return null
 
-  return (
-    db
-      .query<BannerlordSettlementInfo | null, { $id: string }>(
-        `
+  return firstRowOrNull<BannerlordSettlementInfo>(
+    db,
+    `
         SELECT settlementId, name, owner, boundSettlement, settlementType
         FROM bannerlord_settlements
         WHERE settlementId = $id
         ORDER BY filePath
         LIMIT 1
-      `
-      )
-      .get({ $id: settlementId }) ?? null
+      `,
+    settlementId
   )
 }
 
@@ -171,10 +176,14 @@ export function formatReferenceLabel(
   displayName: string | null | undefined,
   preferredLanguages?: string[]
 ): string {
-  if (displayName) {
-    const localized = resolveMaybeLocalizedText(displayName, preferredLanguages)
-    return rawReference ? `${localized} [${rawReference}]` : localized
+  if (!displayName) {
+    return rawReference || 'unknown'
   }
 
-  return rawReference || 'unknown'
+  const localized = resolveMaybeLocalizedText(displayName, preferredLanguages)
+  if (!rawReference) {
+    return localized
+  }
+
+  return `${localized} [${rawReference}]`
 }

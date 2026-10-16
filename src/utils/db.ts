@@ -17,35 +17,49 @@ export function getDb(gameId?: string): Database {
   ensureRuntimeRevisionFresh(gameId)
   const resolvedDbPath = getGamePaths(gameId).dbPath
 
-  if (_runtimeDb && _runtimeDbPath !== resolvedDbPath) {
-    _runtimeDb.close()
-    _runtimeDb = null
-    _runtimeDbPath = null
+  if (_runtimeDb !== null && _runtimeDbPath !== resolvedDbPath) {
+    closeDb()
   }
 
-  if (!_runtimeDb) {
+  if (_runtimeDb === null) {
     _runtimeDb = new Database(resolvedDbPath)
     _runtimeDbPath = resolvedDbPath
     _runtimeDb.run('PRAGMA busy_timeout = 5000;')
   }
+
   return _runtimeDb
 }
 
 export function closeDb(): void {
-  if (_runtimeDb) {
-    _runtimeDb.close()
-    _runtimeDb = null
-    _runtimeDbPath = null
-  }
+  const open = _runtimeDb
+  _runtimeDb = null
+  _runtimeDbPath = null
+  open?.close()
 }
 
 registerRuntimeInvalidator(() => {
   closeDb()
 })
 
-export function databaseHasTable(path: string, tableName: string): boolean {
+/**
+ * Opens `path` read-only for the duration of one probe and closes it again,
+ * reporting `fallback` whenever the database cannot be opened or the query
+ * fails. Every inspection helper below is this shape, so the open/close
+ * pairing exists once instead of five times.
+ */
+function withReadOnlyDb<T>(path: string, fallback: T, probe: (db: Database) => T): T {
   const db = new Database(path, { create: false, readonly: true })
   try {
+    return probe(db)
+  } catch {
+    return fallback
+  } finally {
+    db.close()
+  }
+}
+
+export function databaseHasTable(path: string, tableName: string): boolean {
+  return withReadOnlyDb(path, false, db => {
     const row = db
       .query<{ name: string }, { $tableName: string }>(
         `
@@ -57,51 +71,37 @@ export function databaseHasTable(path: string, tableName: string): boolean {
       .get({ $tableName: tableName })
 
     return Boolean(row)
-  } catch {
-    return false
-  } finally {
-    db.close()
-  }
+  })
 }
 
 export function databaseHasColumns(path: string, tableName: string, expectedColumns: string[]): boolean {
-  const db = new Database(path, { create: false, readonly: true })
-  try {
+  return withReadOnlyDb(path, false, db => {
     const rows = db
       .query<{ name: string }, never>(
         `
-        PRAGMA table_info(${escapeSqlIdentifier(tableName)})
+        PRAGMA table_info(${quoteSqlIdentifier(tableName)})
       `
       )
       .all()
 
     const available = new Set(rows.map(row => row.name))
     return expectedColumns.every(column => available.has(column))
-  } catch {
-    return false
-  } finally {
-    db.close()
-  }
+  })
 }
 
 export function databaseTableRowCount(path: string, tableName: string): number {
-  const db = new Database(path, { create: false, readonly: true })
-  try {
+  return withReadOnlyDb(path, 0, db => {
     const row = db
       .query<{ count: number }, never>(
         `
         SELECT COUNT(*) AS count
-        FROM ${escapeSqlIdentifier(tableName)}
+        FROM ${quoteSqlIdentifier(tableName)}
       `
       )
       .get()
 
     return Number(row?.count ?? 0)
-  } catch {
-    return 0
-  } finally {
-    db.close()
-  }
+  })
 }
 
 export function databaseTableRowCountWhereEquals(
@@ -110,24 +110,19 @@ export function databaseTableRowCountWhereEquals(
   columnName: string,
   value: string
 ): number {
-  const db = new Database(path, { create: false, readonly: true })
-  try {
+  return withReadOnlyDb(path, 0, db => {
     const row = db
       .query<{ count: number }, { $value: string }>(
         `
         SELECT COUNT(*) AS count
-        FROM ${escapeSqlIdentifier(tableName)}
-        WHERE ${escapeSqlIdentifier(columnName)} = $value
+        FROM ${quoteSqlIdentifier(tableName)}
+        WHERE ${quoteSqlIdentifier(columnName)} = $value
       `
       )
       .get({ $value: value })
 
     return Number(row?.count ?? 0)
-  } catch {
-    return 0
-  } finally {
-    db.close()
-  }
+  })
 }
 
 export function databaseTextValue(
@@ -137,29 +132,25 @@ export function databaseTextValue(
   keyValue: string,
   valueColumnName: string
 ): string | undefined {
-  const db = new Database(path, { create: false, readonly: true })
-  try {
+  return withReadOnlyDb(path, undefined as string | undefined, db => {
     const row = db
       .query<{ value: string }, { $keyValue: string }>(
         `
-        SELECT ${escapeSqlIdentifier(valueColumnName)} AS value
-        FROM ${escapeSqlIdentifier(tableName)}
-        WHERE ${escapeSqlIdentifier(keyColumnName)} = $keyValue
+        SELECT ${quoteSqlIdentifier(valueColumnName)} AS value
+        FROM ${quoteSqlIdentifier(tableName)}
+        WHERE ${quoteSqlIdentifier(keyColumnName)} = $keyValue
         LIMIT 1
       `
       )
       .get({ $keyValue: keyValue })
 
     return typeof row?.value === 'string' ? row.value : undefined
-  } catch {
-    return undefined
-  } finally {
-    db.close()
-  }
+  })
 }
 
 // Identifiers (table/column names) cannot be bound as parameters, so they
 // are quoted manually; values always go through bound parameters.
-function escapeSqlIdentifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`
+function quoteSqlIdentifier(rawIdentifier: string): string {
+  const escaped = rawIdentifier.replaceAll('"', '""')
+  return `"${escaped}"`
 }

@@ -12,6 +12,13 @@ import { readTextFileSlice } from './text-file-cache'
 
 const MAX_LINES_THRESHOLD = 400
 const MAX_TYPE_MATCHES = 5
+/** Depth at which the collapse proof line is inserted inside an opening brace. */
+const SURFACE_DEPTH = 1
+/** String and comment contents are erased before braces are counted, so a
+ * literal `{` inside them cannot skew the depth. */
+const NON_CODE_TEXT = /\/\/.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g
+const HIDDEN_IMPLEMENTATION_LINE = '    // ... implementation hidden ...'
+const LEADING_WHITESPACE = /^\s*/
 
 type CSharpTypeMatchRow = {
   filePath: string
@@ -61,38 +68,15 @@ export async function readIndexedCsharpType(options: ReadIndexedCSharpTypeOption
     }
   }
 
-  const selectedRows = rows.slice(0, MAX_TYPE_MATCHES)
   const blocks: AiTextBlock[] = []
 
-  for (const row of selectedRows) {
+  for (const row of rows.slice(0, MAX_TYPE_MATCHES)) {
     const fullPath = join(sourcePath, row.filePath)
+    // A row whose file is gone contributes no block at all — the count
+    // reported below is therefore "blocks actually rendered", not "rows found".
     if (!(await file(fullPath).exists())) continue
 
-    const lineCount = row.endLine - row.startLine + 1
-    const slice = await readTextFileSlice(fullPath, row.startLine, lineCount)
-
-    let finalCode = slice.text
-    let header = `// ${row.typeKind} ${row.fullName} @ ${row.filePath}:${row.startLine + 1}-${row.endLine + 1}`
-
-    if (lineCount > MAX_LINES_THRESHOLD) {
-      finalCode = summarizeTypeSurface(slice.text)
-      header += ' [implementation collapsed]'
-    }
-
-    blocks.push({
-      header: `type_match_${blocks.length + 1}`,
-      fields: [
-        { key: 'type_kind', value: row.typeKind },
-        { key: 'full_type_name', value: row.fullName },
-        { key: 'file_path', value: row.filePath },
-        { key: 'start_line_1based', value: row.startLine + 1 },
-        { key: 'end_line_1based', value: row.endLine + 1 },
-        { key: 'line_count', value: lineCount },
-        { key: 'implementation_collapsed', value: lineCount > MAX_LINES_THRESHOLD ? 'true' : 'false' },
-        { key: 'summary_header', value: header },
-      ],
-      multilineFields: [{ key: 'code', value: finalCode }],
-    })
+    blocks.push(await buildTypeBlock(row, fullPath, blocks.length))
   }
 
   const text = renderAiTextReport(reportType, queryLabel, typeName, blocks, [
@@ -105,6 +89,54 @@ export async function readIndexedCsharpType(options: ReadIndexedCSharpTypeOption
   return { content: [{ type: 'text' as const, text }] }
 }
 
+/** One rendered `type_match_N` block for an existing source file. */
+async function buildTypeBlock(
+  row: CSharpTypeMatchRow,
+  fullPath: string,
+  blocksSoFar: number
+): Promise<AiTextBlock> {
+  const lineCount = row.endLine - row.startLine + 1
+  const slice = await readTextFileSlice(fullPath, row.startLine, lineCount)
+  const isCollapsed = lineCount > MAX_LINES_THRESHOLD
+
+  const code = isCollapsed ? summarizeTypeSurface(slice.text) : slice.text
+  const header = buildTypeHeader(row, isCollapsed)
+
+  return {
+    header: `type_match_${blocksSoFar + 1}`,
+    fields: [
+      { key: 'type_kind', value: row.typeKind },
+      { key: 'full_type_name', value: row.fullName },
+      { key: 'file_path', value: row.filePath },
+      { key: 'start_line_1based', value: row.startLine + 1 },
+      { key: 'end_line_1based', value: row.endLine + 1 },
+      { key: 'line_count', value: lineCount },
+      { key: 'implementation_collapsed', value: isCollapsed ? 'true' : 'false' },
+      { key: 'summary_header', value: header },
+    ],
+    multilineFields: [{ key: 'code', value: code }],
+  }
+}
+
+/** `// class X @ file.cs:1-20`, marked when the body was collapsed. */
+function buildTypeHeader(row: CSharpTypeMatchRow, isCollapsed: boolean): string {
+  const location = `${row.typeKind} ${row.fullName} @ ${row.filePath}:${row.startLine + 1}-${row.endLine + 1}`
+  return isCollapsed ? `// ${location} [implementation collapsed]` : `// ${location}`
+}
+
+/** Net brace depth change contributed by one source line. */
+function braceDelta(line: string): number {
+  const codeOnly = line.replace(NON_CODE_TEXT, '')
+  let delta = 0
+
+  for (const char of codeOnly) {
+    if (char === '{') delta += 1
+    else if (char === '}') delta -= 1
+  }
+
+  return delta
+}
+
 /**
  * Collapses a large type body down to its member surface: namespace and
  * type scaffolding plus member signatures (brace depth ≤ 1) survive;
@@ -113,29 +145,27 @@ export async function readIndexedCsharpType(options: ReadIndexedCSharpTypeOption
  * literal braces cannot skew the depth tracking.
  */
 function summarizeTypeSurface(code: string): string {
-  const lines = code.split('\n')
   const output: string[] = []
   let depth = 0
 
-  for (const line of lines) {
-    const sanitized = line.replace(/\/\/.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '')
-    let depthChange = 0
-    for (const char of sanitized) {
-      if (char === '{') depthChange += 1
-      else if (char === '}') depthChange -= 1
-    }
+  for (const line of code.split('\n')) {
+    const delta = braceDelta(line)
+    const opensANewBody = depth === SURFACE_DEPTH && delta > 0 && !line.includes('}')
+    const closesBackToSurface = depth + delta <= SURFACE_DEPTH
 
-    if (depth <= 1) {
+    if (depth <= SURFACE_DEPTH) {
       output.push(line)
-      if (depth === 1 && depthChange > 0 && !line.includes('}')) {
-        output.push('    // ... implementation hidden ...')
+      if (opensANewBody) {
+        output.push(HIDDEN_IMPLEMENTATION_LINE)
       }
-    } else if (depth + depthChange <= 1) {
-      const indent = line.match(/^\s*/)?.[0] || ''
+    } else if (closesBackToSurface) {
+      // Only the closing brace is kept for deep lines; the member list above
+      // already said what the body was.
+      const indent = line.match(LEADING_WHITESPACE)?.[0] || ''
       output.push(`${indent}}`)
     }
 
-    depth += depthChange
+    depth += delta
   }
 
   return output.join('\n')

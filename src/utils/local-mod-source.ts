@@ -13,14 +13,16 @@ import {
 
 export type LocalModSourceWorkspace = ModSourceWorkspace
 
-export async function resolveLocalModSourceWorkspace(requestedRoot?: string): Promise<LocalModSourceWorkspace> {
+// Each alias is written as a plain delegation rather than a re-export so the
+// local-mod vocabulary stays greppable and the delegate target is explicit.
+export function resolveLocalModSourceWorkspace(requestedRoot?: string): Promise<LocalModSourceWorkspace> {
   return resolveModSourceWorkspace(requestedRoot)
 }
 
-export async function countLocalModCSharpFiles(sourceRoot: string): Promise<number> {
+export function countLocalModCSharpFiles(sourceRoot: string): Promise<number> {
   return countModSourceCSharpFiles(sourceRoot)
 }
 
-export async function* walkLocalModCSharpFiles(dir: string): AsyncGenerator<string> {
-  yield* walkModSourceCSharpFiles(dir)
+export function walkLocalModCSharpFiles(dir: string): AsyncGenerator<string> {
+  return walkModSourceCSharpFiles(dir)
 }

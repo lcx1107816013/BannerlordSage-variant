@@ -11,36 +11,41 @@ import { getActiveGameId, getGamePaths, normalizeGameId } from './env'
 let memoryDb: Database | null = null
 let memoryDbPath: string | null = null
 
-export function getMemoryDb(gameId?: string): Database {
+/** The database file belonging to `gameId` (defaulting to the active game). */
+function resolveMemoryDbPath(gameId?: string): string {
   const resolvedGameId = normalizeGameId(gameId || getActiveGameId())
-  const resolvedPath = getGamePaths(resolvedGameId).memoryDbPath
+  return getGamePaths(resolvedGameId).memoryDbPath
+}
 
-  if (memoryDb && memoryDbPath !== resolvedPath) {
-    memoryDb.close()
-    memoryDb = null
-    memoryDbPath = null
+export function getMemoryDb(gameId?: string): Database {
+  const resolvedPath = resolveMemoryDbPath(gameId)
+  const pointsElsewhere = memoryDb !== null && memoryDbPath !== resolvedPath
+
+  if (pointsElsewhere) {
+    closeMemoryDb()
   }
 
-  if (!memoryDb) {
+  if (memoryDb === null) {
     mkdirSync(dirname(resolvedPath), { recursive: true })
+    // Handle and path are recorded before the schema runs so a failed
+    // migration still leaves a closed handle on the next call, not a leak.
     memoryDb = new Database(resolvedPath)
     memoryDbPath = resolvedPath
     memoryDb.run('PRAGMA busy_timeout = 5000;')
-    initializeMemoryDb(memoryDb)
+    createMemorySchema(memoryDb)
   }
 
   return memoryDb
 }
 
 export function closeMemoryDb(): void {
-  if (memoryDb) {
-    memoryDb.close()
-    memoryDb = null
-    memoryDbPath = null
-  }
+  const open = memoryDb
+  memoryDb = null
+  memoryDbPath = null
+  open?.close()
 }
 
-function initializeMemoryDb(db: Database): void {
+function createMemorySchema(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS project_memories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
