@@ -64,9 +64,9 @@ func registerDoctor(server *mcp.Server) {
 		readOnly(), map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"gameDir":              prop("string", "Install path. Defaults to saved setup state."),
-				"moduleId":             prop("string", "Exact module id, e.g. MercenaryGuild."),
-				"modulePath":           prop("string", "Absolute module dir; use for duplicate ids."),
+				"gameDir":                prop("string", "Install path. Defaults to saved setup state."),
+				"moduleId":               prop("string", "Exact module id, e.g. MercenaryGuild."),
+				"modulePath":             prop("string", "Absolute module dir; use for duplicate ids."),
 				"includeOfficialDetails": propWithDefault("boolean", false, "Include official module details."),
 			},
 		}, stubHandler(notImplemented(toolnaming.ArchiveToolName("bannerlord_doctor"))))
@@ -99,8 +99,8 @@ func registerProjectMemoryRW(server *mcp.Server) {
 			"pitfalls":   strArray("capture_session: confirmed bugs and traps."),
 			"preferences": strArray(
 				"capture_session: stable preferences."),
-			"todos":            strArray("capture_session: pending follow-ups."),
-			"notes":            strArray("capture_session: other reusable notes."),
+			"todos": strArray("capture_session: pending follow-ups."),
+			"notes": strArray("capture_session: other reusable notes."),
 			"sessionImportance": prop("number",
 				"capture_session: 1-5 (default 3)."),
 		},

@@ -79,8 +79,9 @@ func textOnly(text string) *mcp.CallToolResult {
 // notImplemented is the stub for every tool whose Go body has not landed yet.
 //
 // ★ FIXED WORDING, so the gap is greppable across any client log:
-//   "The '<name>' tool is not yet ported to the Go server; run the TypeScript
-//    entrypoint for this tool."
+//
+//	"The '<name>' tool is not yet ported to the Go server; run the TypeScript
+//	 entrypoint for this tool."
 func notImplemented(name string) *mcp.CallToolResult {
 	return textOnly(fmt.Sprintf("The '%s' tool is not yet ported to the Go server; run the TypeScript entrypoint for this tool.", name))
 }
@@ -104,11 +105,34 @@ func writable() *mcp.ToolAnnotations {
 // registrations), because a client that lists tools sees them in registration order and
 // the TypeScript's order is the contract clients were built against.
 func registerAll(server *mcp.Server, deps *Deps) {
+	// The ported bodies bind AFTER the full stub surface is registered: AddTool with a
+	// name that already exists REPLACES the registration, so every tool is present
+	// exactly once and the ported ones win. Registering the bindings first would let a
+	// forgotten stub file re-shadow a real body — the F1 failure mode wearing a new coat.
+	activeDeps = deps
 	registerEditorTools(server, deps)
 	registerLegacyGameplayTools(server, deps)
 	registerMainTools(server, deps)
 	if deps.ToolsetMode == "full" {
 		registerAuthoringTools(server, deps)
+	}
+	// The bindings, in registration order of the main file.
+	bindReadFile(server, deps)
+	bindListDirectory(server, deps)
+	bindSearchXML(server, deps)
+	bindSearchDocs(server, deps)
+	bindSearchAPIDocs(server, deps)
+	bindGetEntity(server, deps)
+	bindResolveLocalization(server, deps)
+	bindReadGauntletUI(server, deps)
+	bindReadCsharpType(server, deps)
+	bindSearchSource(server, deps)
+	bindSearchKnowledge(server, deps)
+	bindIndexStatus(server, deps)
+	bindGenerateHarmonyPatch(server, deps)
+	bindModSourceTools(server, deps)
+	if deps.ToolsetMode == "full" {
+		bindGenerateXsltPatch(server, deps)
 	}
 }
 

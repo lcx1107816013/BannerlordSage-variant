@@ -123,10 +123,10 @@ func SearchModSource(ctx context.Context, workspaceRoot, query string, caseSensi
 // modSourceSummary is the subset of ModSourceIndexSummary the two read paths produce
 // without running the Roslyn indexer.
 type modSourceSummary struct {
-	WorkspaceRoot  string
-	SourceRoot     string
-	CacheRoot      string
-	DBPath         string
+	WorkspaceRoot   string
+	SourceRoot      string
+	CacheRoot       string
+	DBPath          string
 	CSharpFileCount int
 
 	// The last-build counts. The TS gets them from buildModSourceIndex's return value;
@@ -136,11 +136,11 @@ type modSourceSummary struct {
 	// whose file is gone is a pending REMOVAL. A workspace whose database matches its
 	// files reads 0/0 — the same numbers the injected indexer reported in the fixture
 	// run, which is what makes the differential meaningful.
-	ChangedFiles             int
-	RemovedFiles             int
-	TypeCount                int
-	MemberCount              int
-	SourceLocalizationCount  int
+	ChangedFiles            int
+	RemovedFiles            int
+	TypeCount               int
+	MemberCount             int
+	SourceLocalizationCount int
 }
 
 // collectModSourceSummary resolves the workspace (creating the cache dir, as the TS

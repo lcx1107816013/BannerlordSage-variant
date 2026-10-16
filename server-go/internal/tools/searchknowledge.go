@@ -40,11 +40,11 @@ import (
 type KnowledgeIntent = string
 
 const (
-	IntentAuto     KnowledgeIntent = "auto"
-	IntentMakeMod  KnowledgeIntent = "make_mod"
-	IntentAPI      KnowledgeIntent = "api"
-	IntentDocs     KnowledgeIntent = "docs"
-	IntentSource   KnowledgeIntent = "source"
+	IntentAuto    KnowledgeIntent = "auto"
+	IntentMakeMod KnowledgeIntent = "make_mod"
+	IntentAPI     KnowledgeIntent = "api"
+	IntentDocs    KnowledgeIntent = "docs"
+	IntentSource  KnowledgeIntent = "source"
 )
 
 // SearchKnowledge mirrors searchKnowledge(sandbox, query, intent, limit).
@@ -253,14 +253,14 @@ func shouldSearchSource(intent string) bool {
 // ── query builders ───────────────────────────────────────────────────────────
 
 var (
-	knGauntletUI  = regexp.MustCompile(`(?i)gauntlet|ui|界面|菜单|窗口|按钮`)
-	knAssets      = regexp.MustCompile(`(?i)asset|资源|模型|材质|覆盖|替换`)
-	knXmlData     = regexp.MustCompile(`(?i)xml|数据|兵种|物品|文化|王国`)
-	knQuickStart  = regexp.MustCompile(`(?i)submodule|模块|模组|mod|制作|创建|开发|quick`)
-	knHarmony     = regexp.MustCompile(`(?i)harmony|patch|补丁|修改方法`)
-	knXmlRead     = regexp.MustCompile(`(?i)xml|数据|读取|注册`)
-	knParty       = regexp.MustCompile(`(?i)party|队伍|部队|俘虏|招募|士兵`)
-	knHero        = regexp.MustCompile(`(?i)hero|领主|英雄|家族|clan`)
+	knGauntletUI = regexp.MustCompile(`(?i)gauntlet|ui|界面|菜单|窗口|按钮`)
+	knAssets     = regexp.MustCompile(`(?i)asset|资源|模型|材质|覆盖|替换`)
+	knXmlData    = regexp.MustCompile(`(?i)xml|数据|兵种|物品|文化|王国`)
+	knQuickStart = regexp.MustCompile(`(?i)submodule|模块|模组|mod|制作|创建|开发|quick`)
+	knHarmony    = regexp.MustCompile(`(?i)harmony|patch|补丁|修改方法`)
+	knXmlRead    = regexp.MustCompile(`(?i)xml|数据|读取|注册`)
+	knParty      = regexp.MustCompile(`(?i)party|队伍|部队|俘虏|招募|士兵`)
+	knHero       = regexp.MustCompile(`(?i)hero|领主|英雄|家族|clan`)
 )
 
 // buildOfficialDocsQuery mirrors buildOfficialDocsQuery.
