@@ -45,3 +45,6 @@ BANNERLORDSAGE_OPTIMIZATION_STATE.md
 *.bak_*
 *.orig
 *.tmp
+
+# Scratch corpora for tools/rewrite-verify (rebuilt on every run)
+tools/rewrite-verify/.tmp/

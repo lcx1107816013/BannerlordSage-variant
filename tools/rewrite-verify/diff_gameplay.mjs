@@ -5,11 +5,11 @@
 // fixture database the frozen fixture uses (dist/games/bannerlord-fixture-gameplay) and
 // compares the rewrite's rendered text against baseline 8311c9a's, byte for byte.
 //
-// Usage: bun run server-go/tools/parity/diff_gameplay.mjs
+// Usage: bun run tools/rewrite-verify/diff_gameplay.mjs
 
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
-import { repoRoot, cleanupShadow, report, loadBoth } from './diffharness.mjs'
+import { repoRoot, cleanupShadow, report, loadBoth, diffCases } from './diffharness.mjs'
 
 const FIXTURE_GAME = 'bannerlord-fixture-gameplay'
 const fixtureDb = join(repoRoot, 'dist', 'games', FIXTURE_GAME, `${FIXTURE_GAME}.db`)
@@ -58,15 +58,14 @@ for (const target of TARGETS) {
   if (typeof baseFn !== 'function') throw new Error(`baseline ${target.file} lacks ${target.entry}`)
   if (typeof liveFn !== 'function') throw new Error(`rewrite ${target.file} lacks ${target.entry}`)
 
-  const problems = []
-  for (const id of target.ids) {
-    let baseText, liveText
-    try { baseText = JSON.stringify((await baseFn(id)).content[0].text) } catch (e) { baseText = 'THREW ' + String(e?.message ?? e) }
-    try { liveText = JSON.stringify((await liveFn(id)).content[0].text) } catch (e) { liveText = 'THREW ' + String(e?.message ?? e) }
-    if (baseText !== liveText) problems.push({ label: JSON.stringify(id), baseText, liveText })
-  }
-  totalCases += target.ids.length
-  allOk = report(target.file, problems, target.ids.length) && allOk
+  const cases = target.ids.map(id => ({ label: JSON.stringify(id), id }))
+  const { problems, expectedThrows, unexpectedThrows } = await diffCases(baseFn, liveFn, cases, async (fn, c) => {
+    const res = await fn(c.id)
+    return res.content[0].text
+  })
+
+  totalCases += cases.length
+  allOk = report(target.file, problems, cases.length, unexpectedThrows, expectedThrows) && allOk
 }
 
 // NOTE: get-entity.ts is the dispatcher and is NOT part of baseline 8311c9a, so there is no
