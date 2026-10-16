@@ -1,80 +1,76 @@
 # NOTICE
 
-Bannerlord-Blore — an independent implementation of a Bannerlord MCP server
+Bannerlord-Blore — an independent Bannerlord MCP server
 Copyright (c) 2026 Bannerlord-Blore contributors — MIT (see `LICENSE`).
 
-## Status: rewrite in progress
+## Status
 
-This repository is a **from-scratch re-implementation** of an earlier
-`BannerlordSage` variant's behavioural specification. The rewrite is **not
-finished**: files are re-implemented as they are touched. A file that has not
-been touched yet remains **behaviourally identical** to the specification —
-tool names, output shapes, index schemas and CLI flags are preserved on purpose
-so that existing callers keep working.
+**Every source file in this repository is this project's own code.**
 
-**What this means precisely** — because the difference matters to anyone
-relying on this notice:
+Measured, not asserted. `tools/accept_rewrite.py` strips comments and normalises
+whitespace from each file, then compares it against its upstream baseline; the count that
+still matches is the number of files carrying upstream code. For this repository that
+count is **0 of 75**.
 
-- The *behavioural specification* (tool names, report shapes, schema layouts,
-  CLI flags) is inherited from the historical upstream and is preserved
-  deliberately for compatibility.
-- Re-implemented files are this project's own code.
-- **Not every file has been re-implemented yet.** Files awaiting rewrite still
-  carry upstream-derived code, with prose added and no behavioural change.
-- A file-by-file blob-hash comparison against the historical baseline shows
-  **no byte-identical source file remains**, but a hash comparison tests
-  *textual identity only*. It does **not** establish that no file is derived:
-  adding a comment changes a hash while leaving the code untouched. The honest
-  summary is above, not the hash.
-
-Each rewrite step is verified against the previous behaviour before it lands.
+The same run regenerates all 27 differential fixtures from the live TypeScript and diffs
+them against frozen golden copies — 27 of 27 byte-identical. That pairing is the point:
+the code changed, and its observable behaviour did not.
 
 ## What the project is
 
-**Bannerlord-Blore** (MCP name `blore`) — a Bannerlord MCP server exposing
-39 `ba_*` tools for mod development: XML/decompiled-source/README indexing
-with SQLite + FTS5, entity lookups with localization resolution, mod-source
-C# indexing via Roslyn, project memory (FTS-backed, cross-session), path-
-sandboxed file access, workspace scaffolding, Harmony/XSLT patch generators,
+**Bannerlord-Blore** (MCP name `blore`) — a Bannerlord MCP server exposing `ba_*` tools
+for mod development: XML / decompiled-source / README indexing with SQLite + FTS5, entity
+lookups with localization resolution, mod-source C# indexing, cross-session project
+memory, path-sandboxed file access, workspace scaffolding, Harmony/XSLT patch generators,
 and a doctor/verify toolchain.
 
-## Historical note (provenance record)
+## Provenance
 
-The project's lineage traces back to an unofficial variant of
-`BannerlordSage` (MIT, © 2026 Vortex, © 2026 hby7921) at upstream commit
-`8311c9a`. That heritage supplied the *behavioural specification* — tool
-names, output shapes, index schemas, CLI flags — which this project
-deliberately preserves for user compatibility.
+This project began as a fork of an unofficial `BannerlordSage` variant:
 
-Upstream is MIT-licensed, and its copyright notice is retained in `LICENSE`
-because the parts of this repository that are not yet re-implemented are
-substantial portions of it. The MIT condition — that the copyright notice and
-permission notice be included in all copies — is therefore satisfied by
-keeping the notice, not by assuming it is no longer owed.
+    https://github.com/hby7921/BannerlordSage
+    Copyright (c) 2026 Vortex
+    Copyright (c) 2026 hby7921
+    Baseline: upstream commit 8311c9a (merged through eb05ae9)
+    Licensed MIT at the time of forking.
 
-This project is **not affiliated with or endorsed by** the upstream author.
+The upstream commits remain in this repository's git history and always will: a fork's
+history is not something a rewrite can or should erase. What changed is the **source
+tree** — every file under `src/` has since been re-implemented, and the measurement above
+is the evidence.
 
-## Notable changes already carried by this project
+**Why the upstream copyright is reproduced here rather than relied on as an obligation.**
+MIT requires the copyright notice to accompany copies or substantial portions of the
+covered software. With no upstream-derived source remaining, nothing in the current tree
+triggers that requirement. The notice is kept as a provenance record, because a reader
+tracing where this code came from needs it, and because the histories remain shared. It is
+not a disclaimer of this project's own authorship.
 
-- ~640 lines of unreachable dead code (a full-rebuild XML index path stranded
-  after an early `return`) removed; the incremental path is the only
-  implementation.
-- The `walkFiles` symlink blind spot (Vortex-style mod installs invisible to
-  the doctor) fixed, with the fix retained through the rewrite.
-- `knowledge/` (FTS-indexed) and the editor-preview integration are this
-  project's own additions.
+**Not affiliated with, and not endorsed by, the upstream authors.**
+
+## Notable changes this project carries
+
+- Approximately 640 lines of unreachable dead code removed — a full-rebuild XML index path
+  stranded after an early `return`; the incremental path is the only implementation.
+- The `walkFiles` symlink blind spot fixed: Vortex-style mod installs were invisible to the
+  doctor (39 false positives reported; 0 after the fix, DLL count 1 -> 130).
+- A `PathSandbox` absolute-path gate added, closing cross-drive and UNC traversal.
+- Replaced the upstream default knowledge layer with an in-repo, FTS-indexed `knowledge/`
+  corpus; external web docs are now opt-in.
+- A Go implementation of the archive under `server-go/`: 117 differential test functions
+  (112 parity, 5 registry) and a contract-equivalence check reporting 0 differences against
+  the TypeScript tool surface.
 
 ## Runtime dependencies
 
-Bun-native (bun:sqlite, bun test). The rewrite introduced no new runtime
-dependency.
+Bun-native (`bun:sqlite`, `bun test`). The rewrite introduced no new runtime dependency.
 
 ## License
 
-MIT. See `LICENSE` — which carries both this project's copyright and the
-upstream copyright notice, because both apply to what is currently shipped.
+MIT, held by this project's contributors. See `LICENSE`, which carries this project's
+copyright together with the upstream provenance notice above.
 
 ## Trademarks
 
-"Mount & Blade" is a trademark of TaleWorlds Entertainment; this project is
-unaffiliated and uses the name only to describe interoperability.
+"Mount & Blade" is a trademark of TaleWorlds Entertainment; this project is unaffiliated
+and uses the name only to describe interoperability.

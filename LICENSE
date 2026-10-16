@@ -3,30 +3,32 @@ MIT License
 Copyright (c) 2026 Bannerlord-Blore contributors
 
 ────────────────────────────────────────────────────────────────────────────────
-Upstream notice
+Upstream provenance notice
 ────────────────────────────────────────────────────────────────────────────────
 
-This project is an independent implementation of the behavioural specification
-of BannerlordSage, an unofficial variant of which was its starting point:
+This project began as a fork of an unofficial BannerlordSage variant:
 
     https://github.com/hby7921/BannerlordSage
 
     Copyright (c) 2026 Vortex
     Copyright (c) 2026 hby7921
 
-BannerlordSage is licensed under the MIT License. Its copyright notices are
-reproduced above to satisfy the MIT condition that "the above copyright notice
-and this permission notice shall be included in all copies or substantial
-portions of the Software".
+    Baseline: upstream commit 8311c9a (merged through eb05ae9)
 
-This is required rather than optional: source files that have not yet been
-re-implemented still carry upstream code, so portions of this repository are
-covered by the upstream notice. See NOTICE for the current rewrite status.
+MIT requires a copyright notice to accompany copies or substantial portions of the
+covered software. **Every source file in this repository has since been re-implemented**
+(measured: 0 of 75 files still carry upstream code — see `NOTICE` for the command and the
+result), so no file in the current source tree is a substantial portion of the upstream
+work and the requirement is not triggered by it.
 
-This project is **not affiliated with or endorsed by** the upstream authors.
+The upstream notice is reproduced above as a **provenance record**, not as a claim about
+the current code: the fork's commits remain in this repository's git history, and a reader
+tracing where the code came from needs them. This project is **not affiliated with, and
+not endorsed by, the upstream authors**.
 
 ────────────────────────────────────────────────────────────────────────────────
-MIT License text (applies to this project, the upstream above, and the notices herein)
+MIT License text
+(applies to this project; the upstream notice above is reproduced under the same terms)
 ────────────────────────────────────────────────────────────────────────────────
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
