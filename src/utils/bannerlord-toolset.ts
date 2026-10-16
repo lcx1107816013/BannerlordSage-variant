@@ -49,6 +49,7 @@ export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   // no notion of assets - so there is no upstream tier placement to preserve.
   'index_assets',
   'find_asset',
+  'check_mod_conflicts',
 ].map(archiveToolName)
 
 export const AUTHORING_BANNERLORD_TOOL_NAMES = [

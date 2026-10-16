@@ -22,82 +22,82 @@
     {
       "input": null,
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "   ",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "query-first",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "QUERY-FIRST",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "  query-first  ",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "Query-First",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "full",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "FULL",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "full ",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "queryfirst",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "query_first",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "query-first extra",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     },
     {
       "input": "query-first　",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "﻿query-first",
       "mode": "query-first",
-      "toolCount": 41
+      "toolCount": 42
     },
     {
       "input": "query-first",
       "mode": "full",
-      "toolCount": 48
+      "toolCount": 49
     }
   ],
   "queryFirstTools": [
@@ -141,7 +141,8 @@
     "ba_resolve_localization",
     "ba_read_gauntlet_ui",
     "ba_index_assets",
-    "ba_find_asset"
+    "ba_find_asset",
+    "ba_check_mod_conflicts"
   ],
   "authoringTools": [
     "ba_create_mod_workspace",

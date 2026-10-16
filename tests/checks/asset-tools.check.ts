@@ -14,8 +14,8 @@ import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { indexAssetsTool } from '../src/tools/index-assets';
-import { findAssetTool } from '../src/tools/find-asset';
+import { indexAssetsTool } from '../../src/tools/index-assets';
+import { findAssetTool } from '../../src/tools/find-asset';
 
 const root = mkdtempSync(join(tmpdir(), 'asset-tools-'));
 let failures = 0;

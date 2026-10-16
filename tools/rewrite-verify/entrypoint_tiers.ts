@@ -36,7 +36,7 @@ const SAGE_ROOT = process.env.SAGE_ROOT ?? 'D:\\GitHub\\BannerlordSage-variant';
 const BUN = process.env.BUN_PATH
   ?? 'C:\\Users\\LCGX\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Oven-sh.Bun_Microsoft.Winget.Source_8wekyb3d8bbwe\\bun-windows-x64\\bun.exe';
 
-const TIERS = { 'query-first': 41, full: 48 } as const;
+const TIERS = { 'query-first': 42, full: 49 } as const;
 
 type Result = { entry: string; env: string; tools: number | null; verdict: string };
 

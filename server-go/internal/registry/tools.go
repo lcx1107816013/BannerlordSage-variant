@@ -60,6 +60,7 @@ func registerMainTools(server *mcp.Server, deps *Deps) {
 	// Asset side: this project's own capability, absent upstream.
 	registerIndexAssets(server, deps)
 	registerFindAsset(server, deps)
+	registerCheckModConflicts(server, deps)
 }
 
 func registerDoctor(server *mcp.Server) {
@@ -403,6 +404,23 @@ func registerIndexAssets(server *mcp.Server, deps *Deps) {
 	register(server, "index_assets", "Index Assets",
 		"List every texture, model and .tpac asset package in a Bannerlord install (or one module). Reports what exists and where; payloads are not decoded.",
 		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("index_assets"))))
+}
+
+// registerCheckModConflicts puts the multi-mod conflict analyser on the stub surface, so the
+// tool list matches the TypeScript's. Its real body binds afterwards in registerAll.
+func registerCheckModConflicts(server *mcp.Server, deps *Deps) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"modDirs":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "One or more mod source directories; each is one module."},
+			"moduleIds":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional ids parallel to modDirs."},
+			"includeDeclarations": prop("boolean", "Also list every declaration, not only the competing ones."),
+		},
+		"required": []string{"modDirs"},
+	}
+	register(server, "check_mod_conflicts", "Check Mod Conflicts",
+		"Find which installed mods patch the SAME Harmony target, ranked by severity. Transpiler-vs-transpiler clashes first: the failure mode is invalid IL rather than a wrong value. Static; confirm with bl_patches at runtime.",
+		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("check_mod_conflicts"))))
 }
 
 func registerFindAsset(server *mcp.Server, deps *Deps) {

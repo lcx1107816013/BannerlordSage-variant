@@ -15,6 +15,7 @@ import { getEntity } from './tools/get-entity'
 import { indexModSource } from './tools/index-mod-source'
 import { indexAssetsTool } from './tools/index-assets'
 import { findAssetTool } from './tools/find-asset'
+import { checkModConflicts } from './tools/check-mod-conflicts'
 import { listDirectory } from './tools/list-directory'
 import { listModDirectory } from './tools/list-mod-directory'
 import { modSourceStatus } from './tools/mod-source-status'
@@ -552,4 +553,29 @@ server.registerTool(
     },
   },
   async ({ gameDir, query, moduleId, limit }) => await findAssetTool({ gameDir, query, moduleId, limit }),
+)
+
+// Multi-mod conflict analysis: the static half of "will these mods work together".
+//
+// It sits beside the asset tools rather than in the authoring tier because it is a read-only
+// analysis a modder runs before launching, and a pre-flight check that costs a tier switch is
+// one nobody runs.
+server.registerTool(
+  archiveToolName('check_mod_conflicts'),
+  {
+    title: 'Check Mod Conflicts',
+    description:
+      'Find which installed mods patch the SAME Harmony target, ranked by severity. Transpiler-vs-transpiler clashes are reported first because the failure mode is invalid IL rather than a wrong value. Static: no game required. Confirm against bl_patches in a running game.',
+    inputSchema: {
+      modDirs: z.array(z.string()).min(1).describe('One or more mod source directories; each is one module.'),
+      moduleIds: z.array(z.string()).optional().describe('Optional ids parallel to modDirs; defaults to each directory name.'),
+      includeDeclarations: z.boolean().optional().describe('Also list every declaration, not only the competing ones.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ modDirs, moduleIds, includeDeclarations }) =>
+    await checkModConflicts({ modDirs, moduleIds, includeDeclarations }),
 )

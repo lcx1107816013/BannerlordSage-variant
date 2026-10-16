@@ -89,6 +89,7 @@ func buildQueryFirstLegacy() []string {
 		// question asked before anything is modified.
 		"index_assets",
 		"find_asset",
+		"check_mod_conflicts",
 	}
 	out := make([]string, 0, len(head)+len(LegacyGameplayToolNames)+len(tail))
 	out = append(out, head...)

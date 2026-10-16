@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -443,6 +444,74 @@ func bindFindAsset(server *mcp.Server, _ *Deps) {
 			return nil, err
 		}
 		return textOnly(tools.FormatFindAsset(index, in.Query)), nil
+	})
+}
+
+// bindCheckModConflicts exposes the static multi-mod patch analysis.
+//
+// It takes directories rather than a game path: the input is mod SOURCE, not an install, and
+// conflating the two would invite passing a game directory and silently scanning nothing.
+func bindCheckModConflicts(server *mcp.Server, _ *Deps) {
+	server.AddTool(&mcp.Tool{
+		Name:        name("check_mod_conflicts"),
+		Title:       "Check Mod Conflicts",
+		Description: "Find which installed mods patch the SAME Harmony target, ranked by severity. Transpiler-vs-transpiler clashes first: the failure mode is invalid IL rather than a wrong value. Static; confirm with the live patch probe at runtime.",
+		Annotations: readOnly(),
+		InputSchema: schema(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"modDirs":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "One or more mod source directories; each is one module."},
+				"moduleIds":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional ids parallel to modDirs."},
+				"includeDeclarations": prop("boolean", "Also list every declaration, not only the competing ones."),
+			},
+			"required": []string{"modDirs"},
+		}),
+	}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		in, err := args[struct {
+			ModDirs             []string `json:"modDirs"`
+			ModuleIDs           []string `json:"moduleIds"`
+			IncludeDeclarations bool     `json:"includeDeclarations"`
+		}](req)
+		if err != nil {
+			return nil, err
+		}
+
+		dirs := make([]string, 0, len(in.ModDirs))
+		for _, d := range in.ModDirs {
+			if strings.TrimSpace(d) != "" {
+				dirs = append(dirs, d)
+			}
+		}
+		if len(dirs) == 0 {
+			return textOnly("report_type: check_mod_conflicts\nerror: modDirs must contain at least one directory\n"), nil
+		}
+		if len(dirs) == 1 {
+			// Not an error, but the question is cross-mod, and an empty conflict list for a
+			// one-mod run reads like a clean bill of health for a question never asked.
+			return textOnly("report_type: check_mod_conflicts\nnote: only one mod given - conflicts are between mods\n"), nil
+		}
+
+		report, err := tools.AnalyzeModConflicts(dirs, in.ModuleIDs)
+		if err != nil {
+			return nil, err
+		}
+
+		// Re-scan when declarations were asked for; the analysis keeps only the conflicts.
+		var declarations []tools.PatchDeclaration
+		if in.IncludeDeclarations {
+			for i, dir := range dirs {
+				moduleID := ""
+				if i < len(in.ModuleIDs) {
+					moduleID = strings.TrimSpace(in.ModuleIDs[i])
+				}
+				if moduleID == "" {
+					moduleID = filepath.Base(strings.TrimRight(strings.ReplaceAll(dir, "\\", "/"), "/"))
+				}
+				found, _ := tools.ScanPatchDeclarations(dir, moduleID, tools.CollectCsharpFiles(dir, 0))
+				declarations = append(declarations, found...)
+			}
+		}
+		return textOnly(tools.FormatModConflicts(report, in.IncludeDeclarations, declarations)), nil
 	})
 }
 

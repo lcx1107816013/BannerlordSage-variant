@@ -29,7 +29,7 @@ import {
   TEXTURE_EXTENSIONS,
   MODEL_EXTENSIONS,
   PACKAGE_EXTENSIONS,
-} from '../src/utils/asset-index';
+} from '../../src/utils/asset-index';
 
 const root = mkdtempSync(join(tmpdir(), 'asset-index-'));
 let failures = 0;

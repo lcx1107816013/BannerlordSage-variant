@@ -112,16 +112,17 @@ func TestRegistryQueryFirstOmitsAuthoring(t *testing.T) {
 	}
 }
 
-// TestRegistryCounts pins the headline numbers: 41 query-first, 48 full.
-// These were the upstream surface sizes (39/46) until this project added index_assets
+// TestRegistryCounts pins the headline numbers: 42 query-first, 49 full.
+// These were the upstream surface sizes (39/46) until this project added index_assets,
+// find_asset and check_mod_conflicts
 // and find_asset, which upstream has no equivalent of. The counts moved because the
 // capability moved - that is what this assertion is for.
 func TestRegistryCounts(t *testing.T) {
-	if got := len(listToolNames(t, toolset.ModeQueryFirst)); got != 41 {
-		t.Errorf("query-first surface = %d tools, want 41", got)
+	if got := len(listToolNames(t, toolset.ModeQueryFirst)); got != 42 {
+		t.Errorf("query-first surface = %d tools, want 42", got)
 	}
-	if got := len(listToolNames(t, toolset.ModeFull)); got != 48 {
-		t.Errorf("full surface = %d tools, want 48", got)
+	if got := len(listToolNames(t, toolset.ModeFull)); got != 49 {
+		t.Errorf("full surface = %d tools, want 49", got)
 	}
 }
 
