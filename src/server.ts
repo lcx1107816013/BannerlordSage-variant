@@ -16,6 +16,7 @@ import { indexModSource } from './tools/index-mod-source'
 import { indexAssetsTool } from './tools/index-assets'
 import { findAssetTool } from './tools/find-asset'
 import { checkModConflicts } from './tools/check-mod-conflicts'
+import { bridgeQuery } from './tools/bridge-query'
 import { listDirectory } from './tools/list-directory'
 import { listModDirectory } from './tools/list-mod-directory'
 import { modSourceStatus } from './tools/mod-source-status'
@@ -578,4 +579,29 @@ server.registerTool(
   },
   async ({ modDirs, moduleIds, includeDeclarations }) =>
     await checkModConflicts({ modDirs, moduleIds, includeDeclarations }),
+)
+
+// Direct line to the running game, without going through Core.
+//
+// The other half of the pair with check_mod_conflicts: that one reports what the SOURCE
+// declares will attach, this one reports what the process actually did. Neither is a verdict
+// on its own, which is why both exist and why the report says so.
+server.registerTool(
+  archiveToolName('bridge_query'),
+  {
+    title: 'Bridge Query',
+    description:
+      'Ask the running game for runtime facts (patch owners, patch failures, loaded modules, crash info) by invoking the Bridge CLI. Pair with check_mod_conflicts: source declarations versus what actually attached.',
+    inputSchema: {
+      action: z.string().describe('One of: ping, status, build-check, patches, patch-failures, modules, crash, exceptions, capability-probe.'),
+      bridgeDir: z.string().optional().describe('Folder containing bl_cmd.py; defaults to BANNERSAGE_BRIDGE_DIR.'),
+      flags: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
+        .describe('Optional filter flags, forwarded as --name value.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: true,
+    },
+  },
+  async ({ action, bridgeDir, flags }) => await bridgeQuery({ action, bridgeDir, flags }),
 )

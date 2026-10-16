@@ -61,6 +61,7 @@ func registerMainTools(server *mcp.Server, deps *Deps) {
 	registerIndexAssets(server, deps)
 	registerFindAsset(server, deps)
 	registerCheckModConflicts(server, deps)
+	registerBridgeQuery(server, deps)
 }
 
 func registerDoctor(server *mcp.Server) {
@@ -421,6 +422,23 @@ func registerCheckModConflicts(server *mcp.Server, deps *Deps) {
 	register(server, "check_mod_conflicts", "Check Mod Conflicts",
 		"Find which installed mods patch the SAME Harmony target, ranked by severity. Transpiler-vs-transpiler clashes first: the failure mode is invalid IL rather than a wrong value. Static; confirm with bl_patches at runtime.",
 		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("check_mod_conflicts"))))
+}
+
+// registerBridgeQuery puts the Bridge CLI bridge on the stub surface, so the tool list
+// matches the TypeScript's. Its real body binds afterwards in registerAll.
+func registerBridgeQuery(server *mcp.Server, deps *Deps) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":    prop("string", "One of: ping, status, build-check, patches, patch-failures, modules, crash, exceptions, capability-probe."),
+			"bridgeDir": prop("string", "Folder containing bl_cmd.py; defaults to BANNERSAGE_BRIDGE_DIR."),
+			"flags":     map[string]any{"type": "object", "description": "Optional filter flags, forwarded as --name value."},
+		},
+		"required": []string{"action"},
+	}
+	register(server, "bridge_query", "Bridge Query",
+		"Ask the running game for runtime facts by invoking the Bridge CLI. Pair with check_mod_conflicts: source declarations versus what actually attached.",
+		readOnly(), schema, stubHandler(notImplemented(toolnaming.ArchiveToolName("bridge_query"))))
 }
 
 func registerFindAsset(server *mcp.Server, deps *Deps) {

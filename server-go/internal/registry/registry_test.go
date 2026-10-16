@@ -118,11 +118,11 @@ func TestRegistryQueryFirstOmitsAuthoring(t *testing.T) {
 // and find_asset, which upstream has no equivalent of. The counts moved because the
 // capability moved - that is what this assertion is for.
 func TestRegistryCounts(t *testing.T) {
-	if got := len(listToolNames(t, toolset.ModeQueryFirst)); got != 42 {
-		t.Errorf("query-first surface = %d tools, want 42", got)
+	if got := len(listToolNames(t, toolset.ModeQueryFirst)); got != 43 {
+		t.Errorf("query-first surface = %d tools, want 43", got)
 	}
-	if got := len(listToolNames(t, toolset.ModeFull)); got != 49 {
-		t.Errorf("full surface = %d tools, want 49", got)
+	if got := len(listToolNames(t, toolset.ModeFull)); got != 50 {
+		t.Errorf("full surface = %d tools, want 50", got)
 	}
 }
 

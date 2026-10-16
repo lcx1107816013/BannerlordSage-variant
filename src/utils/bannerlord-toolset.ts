@@ -50,6 +50,7 @@ export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'index_assets',
   'find_asset',
   'check_mod_conflicts',
+  'bridge_query',
 ].map(archiveToolName)
 
 export const AUTHORING_BANNERLORD_TOOL_NAMES = [

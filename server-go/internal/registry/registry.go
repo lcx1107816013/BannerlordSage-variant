@@ -153,6 +153,7 @@ func registerAll(server *mcp.Server, deps *Deps) {
 	bindIndexAssets(server, deps)
 	bindFindAsset(server, deps)
 	bindCheckModConflicts(server, deps)
+	bindBridgeQuery(server, deps)
 	bindReadCsharpType(server, deps)
 	bindSearchSource(server, deps)
 	bindSearchKnowledge(server, deps)

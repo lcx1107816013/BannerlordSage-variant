@@ -515,6 +515,54 @@ func bindCheckModConflicts(server *mcp.Server, _ *Deps) {
 	})
 }
 
+// bindBridgeQuery forwards a fixed set of Bridge CLI actions.
+//
+// It runs the Bridge's own supported entry point as a subprocess rather than re-implementing
+// that project's file-IPC handshake here. The protocol has a request-expiry gate built
+// specifically so a request left behind by a timed-out caller cannot be executed later as a
+// ghost battle; a second implementation of that handshake would be a second place for it to be
+// wrong. The cost is coarser error detail, which is the deliberate price of the module
+// boundary.
+//
+// The action list is CLOSED and the arguments are passed as an argv array with no shell, so a
+// value that looks like shell syntax stays a value.
+func bindBridgeQuery(server *mcp.Server, _ *Deps) {
+	server.AddTool(&mcp.Tool{
+		Name:        name("bridge_query"),
+		Title:       "Bridge Query",
+		Description: "Ask the running game for runtime facts (patch owners, patch failures, loaded modules, crash info) by invoking the Bridge CLI. Pair with check_mod_conflicts: source declarations versus what actually attached.",
+		Annotations: readOnly(),
+		InputSchema: schema(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action":    prop("string", "One of: ping, status, build-check, patches, patch-failures, modules, crash, exceptions, capability-probe."),
+				"bridgeDir": prop("string", "Folder containing bl_cmd.py; defaults to BANNERSAGE_BRIDGE_DIR."),
+				"flags":     map[string]any{"type": "object", "description": "Optional filter flags, forwarded as --name value."},
+			},
+			"required": []string{"action"},
+		}),
+	}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		in, err := args[struct {
+			Action    string            `json:"action"`
+			BridgeDir string            `json:"bridgeDir"`
+			Flags     map[string]string `json:"flags"`
+		}](req)
+		if err != nil {
+			return nil, err
+		}
+
+		text, invokeErr := tools.InvokeBridge(tools.BridgeInvocation{
+			Action:    in.Action,
+			BridgeDir: in.BridgeDir,
+			Flags:     in.Flags,
+		})
+		if invokeErr != nil {
+			return nil, invokeErr
+		}
+		return textOnly(text), nil
+	})
+}
+
 func bindReadCsharpType(server *mcp.Server, _ *Deps) {
 	server.AddTool(&mcp.Tool{
 		Name:        name("read_csharp_type"),
