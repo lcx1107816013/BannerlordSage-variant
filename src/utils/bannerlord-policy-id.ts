@@ -1,15 +1,28 @@
-// Policy ids are matched case-insensitively with an optional `Policy.`
-// namespace prefix; one known upstream typo gets mapped to the correct id
-// so callers can pass either spelling.
-const POLICY_ID_ALIASES: Record<string, string> = {
-  policy_land_grands_for_veteran: 'policy_land_grants_for_veterans',
+// Policy identifiers arrive in several spellings. They are matched
+// case-insensitively, an optional `Policy.` namespace prefix is stripped
+// first, and one known upstream typo is mapped onto its canonical spelling so
+// callers can pass either form.
+
+/** Upstream typo -> canonical id. */
+const POLICY_ID_ALIASES = new Map<string, string>([
+  ['policy_land_grands_for_veteran', 'policy_land_grants_for_veterans'],
+])
+
+/** Trims, drops a leading `Policy.` in any case, then lowercases. */
+function canonicalizePolicyId(raw: string): string {
+  return raw.trim().replace(/^Policy\./i, '').toLowerCase()
 }
 
 export function normalizeBannerlordPolicyId(value: string | null | undefined): string | null {
-  if (!value) return null
+  if (!value) {
+    return null
+  }
 
-  const normalized = value.trim().replace(/^Policy\./i, '').toLowerCase()
-  if (!normalized) return null
+  const canonical = canonicalizePolicyId(value)
+  if (canonical.length === 0) {
+    return null
+  }
 
-  return POLICY_ID_ALIASES[normalized] ?? normalized
+  const aliased = POLICY_ID_ALIASES.get(canonical)
+  return aliased === undefined ? canonical : aliased
 }
