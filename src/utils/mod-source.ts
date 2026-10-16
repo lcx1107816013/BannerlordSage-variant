@@ -40,14 +40,12 @@ const MOD_SOURCE_DIR_ENV_KEYS = [
 
 /** The configured source directory from the environment, if any. */
 export function getConfiguredModSourceDir(): string | undefined {
-  for (const envKey of MOD_SOURCE_DIR_ENV_KEYS) {
-    const configured = process.env[envKey]
-    if (configured) {
-      return configured.trim()
-    }
-  }
-
-  return undefined
+  const configured = MOD_SOURCE_DIR_ENV_KEYS.map(envKey => process.env[envKey])
+  // Most specific first: the first non-empty spelling wins, and when every
+  // spelling is empty the LAST one is what the expression resolves to (an
+  // empty string stays an empty string rather than collapsing to undefined).
+  const effective = configured.find(candidate => candidate) ?? configured[configured.length - 1]
+  return effective?.trim()
 }
 
 /** Resolves (and creates the cache for) the configured workspace. */
