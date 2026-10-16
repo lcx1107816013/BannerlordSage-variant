@@ -3,6 +3,16 @@
 // one shared topic/source. A session with nothing durable is refused.
 import { captureProjectMemorySession, renderProjectMemoryReport } from '../utils/project-memory'
 
+/** Importance assigned to every row of the session when the caller does not pick one. */
+const DEFAULT_SESSION_IMPORTANCE = 3
+
+/** The workspace name used when the caller supplies none. */
+const DEFAULT_SESSION_WORKSPACE = 'bannerlordsage'
+
+/** Shown when none of the six session buckets carried anything durable. */
+const EMPTY_SESSION_TEXT =
+  'No durable session memories were provided. Add at least one summary, decision, pitfall, preference, todo, or note.'
+
 export async function projectMemoryCaptureSession(
   workspace?: string,
   topic?: string,
@@ -13,7 +23,7 @@ export async function projectMemoryCaptureSession(
   preferences?: string[],
   todos?: string[],
   notes?: string[],
-  sessionImportance: number = 3
+  sessionImportance: number = DEFAULT_SESSION_IMPORTANCE
 ) {
   const rows = captureProjectMemorySession({
     workspace,
@@ -29,25 +39,21 @@ export async function projectMemoryCaptureSession(
   })
 
   if (rows.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: 'No durable session memories were provided. Add at least one summary, decision, pitfall, preference, todo, or note.',
-        },
-      ],
-    }
+    return reply(EMPTY_SESSION_TEXT)
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: renderProjectMemoryReport('project_memory_capture_session', 'workspace', workspace?.trim() || 'bannerlordsage', rows, [
-          { key: 'topic', value: topic },
-          { key: 'source', value: source },
-        ]),
-      },
-    ],
-  }
+  const filters = [
+    { key: 'topic', value: topic },
+    { key: 'source', value: source },
+  ]
+  const renderedScope = workspace?.trim() || DEFAULT_SESSION_WORKSPACE
+
+  return reply(
+    renderProjectMemoryReport('project_memory_capture_session', 'workspace', renderedScope, rows, filters)
+  )
+}
+
+/** Wraps a rendered report in the single-text-content reply shape. */
+function reply(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
 }

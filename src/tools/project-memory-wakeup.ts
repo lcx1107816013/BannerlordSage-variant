@@ -2,26 +2,25 @@
 // workspace so an agent can load prior context before starting new work.
 import { getProjectMemoryWakeup, renderProjectMemoryReport } from '../utils/project-memory'
 
-export async function projectMemoryWakeup(workspace?: string, limit: number = 8) {
+/** Rows per page when the caller does not ask for a window. */
+const DEFAULT_WAKEUP_LIMIT = 8
+
+export async function projectMemoryWakeup(workspace?: string, limit: number = DEFAULT_WAKEUP_LIMIT) {
   const rows = getProjectMemoryWakeup(workspace, limit)
 
   if (rows.length === 0) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: `No active wake-up memories found for workspace: ${workspace?.trim() || 'bannerlordsage'}`,
-        },
-      ],
-    }
+    // ★ The two messages disagree about the fallback name ON PURPOSE, and both
+    //   are contract: the empty-result sentence substitutes the project name
+    //   'bannerlordsage', while the rendered report below uses 'all'.
+    return reply(`No active wake-up memories found for workspace: ${workspace?.trim() || 'bannerlordsage'}`)
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: renderProjectMemoryReport('project_memory_wakeup', 'workspace', workspace?.trim() || 'all', rows),
-      },
-    ],
-  }
+  const renderedScope = workspace?.trim() || 'all'
+
+  return reply(renderProjectMemoryReport('project_memory_wakeup', 'workspace', renderedScope, rows))
+}
+
+/** Wraps a rendered report in the single-text-content reply shape. */
+function reply(text: string) {
+  return { content: [{ type: 'text' as const, text }] }
 }
