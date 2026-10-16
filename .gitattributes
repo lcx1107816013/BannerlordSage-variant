@@ -1,0 +1,29 @@
+# Line endings.
+#
+# ★ WHY THIS EXISTS, AND WHY IT IS THE SAME FIX AS IN Bannerlord-Helper.
+#
+# `core.autocrlf=true` makes git store LF in the repository but write CRLF into the working
+# tree. The rewrite wrote 13 source files with CRLF directly, so those files differed from
+# the other 79 in a way that has nothing to do with their content.
+#
+# Unlike Helper - where a linter reads the working tree and turned this into ~1120 reported
+# errors - this repository has no linter configured, so nothing failed. That is the worse
+# case, not the better one: an inconsistency that no check reports is one that grows. The
+# next person to touch one of these files produces a diff full of line-ending noise, and
+# concludes the file was largely rewritten when it was not.
+#
+# Pinning the endings makes the working tree and the repository agree, so a diff shows what
+# actually changed. Applied per file kind rather than as a blanket `*`, so binary assets
+# (png, zip, dll) are left untouched - a blanket rule would corrupt them.
+
+*.sh   text eol=lf
+*.ts   text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
+*.xml  text eol=lf
+*.cs   text eol=lf
+*.go   text eol=lf
