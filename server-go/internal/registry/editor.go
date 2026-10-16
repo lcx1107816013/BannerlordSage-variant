@@ -115,9 +115,9 @@ func registerAuthoringEditorTools(server *mcp.Server) {
 			"prefab": map[string]any{
 				"type": "string", "minLength": 1, "maxLength": 128,
 			},
-			"x": map[string]any{"type": "number", "minimum": -100, "maximum": 100},
-			"y": map[string]any{"type": "number", "minimum": -100, "maximum": 100},
-			"z": map[string]any{"type": "number", "minimum": -100, "maximum": 100},
+			"x":  map[string]any{"type": "number", "minimum": -100, "maximum": 100},
+			"y":  map[string]any{"type": "number", "minimum": -100, "maximum": 100},
+			"z":  map[string]any{"type": "number", "minimum": -100, "maximum": 100},
 			"rx": map[string]any{"type": "number", "minimum": -3600, "maximum": 3600},
 			"ry": map[string]any{"type": "number", "minimum": -3600, "maximum": 3600},
 			"rz": map[string]any{"type": "number", "minimum": -3600, "maximum": 3600},

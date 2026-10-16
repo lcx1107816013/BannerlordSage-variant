@@ -35,7 +35,7 @@ func registerProjectMemoryTools(server *mcp.Server) {
 	addSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"text": prop("string", "The raw memory text to preserve. Prefer verbatim reasoning, decisions, and concrete findings."),
+			"text":      prop("string", "The raw memory text to preserve. Prefer verbatim reasoning, decisions, and concrete findings."),
 			"workspace": prop("string", "Optional project or workspace scope, such as bannerlordsage or a specific mod name. Defaults to bannerlordsage."),
 			"topic":     prop("string", "Optional topic bucket, such as indexing, docs, harmony, release, or xml."),
 			"kind":      prop("string", "Optional memory kind such as decision, pitfall, preference, todo, session, or note."),
@@ -77,12 +77,12 @@ func registerProjectMemoryTools(server *mcp.Server) {
 	searchSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"query":            prop("string", "Search text describing the past decision, issue, preference, or context you want to recall."),
-			"workspace":        prop("string", "Optional workspace or project filter."),
-			"topic":            prop("string", "Optional topic filter."),
-			"kind":             prop("string", "Optional kind filter such as decision, pitfall, or preference."),
-			"limit":            propWithDefault("number", 5, "Maximum number of memories to return."),
-			"includeInactive":  propWithDefault("boolean", false, "When true, include invalidated memories in the results."),
+			"query":           prop("string", "Search text describing the past decision, issue, preference, or context you want to recall."),
+			"workspace":       prop("string", "Optional workspace or project filter."),
+			"topic":           prop("string", "Optional topic filter."),
+			"kind":            prop("string", "Optional kind filter such as decision, pitfall, or preference."),
+			"limit":           propWithDefault("number", 5, "Maximum number of memories to return."),
+			"includeInactive": propWithDefault("boolean", false, "When true, include invalidated memories in the results."),
 		},
 		"required": []string{"query"},
 	}

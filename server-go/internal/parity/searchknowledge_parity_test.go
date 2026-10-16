@@ -32,17 +32,17 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 type skCase struct {
-	Label string  `json:"label"`
-	Query string  `json:"query"`
-	OK    bool    `json:"ok"`
-	Text  string  `json:"text"`
-	Error string  `json:"error"`
+	Label string `json:"label"`
+	Query string `json:"query"`
+	OK    bool   `json:"ok"`
+	Text  string `json:"text"`
+	Error string `json:"error"`
 }
 
 type skFixtures struct {
-	DBPath     string   `json:"dbPath"`
+	DBPath      string   `json:"dbPath"`
 	CorpusFiles []string `json:"corpusFiles"`
-	Cases      []skCase `json:"cases"`
+	Cases       []skCase `json:"cases"`
 }
 
 func loadSearchKnowledgeFixtures(t *testing.T) (skFixtures, *sql.DB, string) {

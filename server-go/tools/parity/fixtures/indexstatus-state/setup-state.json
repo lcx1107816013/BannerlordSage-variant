@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "gameDir": "D:\\GitHub\\BannerlordSage-variant\\server-go\\tools\\parity\\fixtures\\indexstatus-game",
+  "gameVersion": "v1.2.9",
+  "buildChangeset": "changeset-abc",
+  "fullVersion": "1.2.9.1",
+  "versionSource": "steam",
+  "dllScope": "official",
+  "xmlScope": "core",
+  "dlls": {
+    "modules/native/bin/win64_shipping_client/taleworlds.mountandblade.view.dll": {
+      "md5": "x1",
+      "sourceFile": "a",
+      "outputDir": "b",
+      "updatedAt": "t"
+    },
+    "bin/win64_shipping_client/taleworlds.campaignsystem.dll": {
+      "md5": "x2",
+      "sourceFile": "a",
+      "outputDir": "b",
+      "updatedAt": "t"
+    }
+  },
+  "xmlFiles": {
+    "a.xml": {
+      "sourceFile": "a",
+      "size": 1,
+      "mtimeMs": 1,
+      "updatedAt": "t"
+    }
+  }
+}

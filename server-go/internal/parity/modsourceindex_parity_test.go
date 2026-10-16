@@ -82,9 +82,9 @@ func loadModSourceIndexFixtures(t *testing.T) (msiFixtures, string) {
 		t.Fatal(err)
 	}
 	bodies := map[string]string{
-		"src/SubModule.cs":   "namespace MyMod {\n  public class SubModule { }\n}\n",
-		"src/Helpers.cs":     "namespace MyMod {\n  internal class SubModule { }\n}\n",
-		"src/PartyLogic.cs":  "namespace MyMod.Logic {\n  public class PartyLogic {\n    public void Run() { }\n  }\n}\n",
+		"src/SubModule.cs":  "namespace MyMod {\n  public class SubModule { }\n}\n",
+		"src/Helpers.cs":    "namespace MyMod {\n  internal class SubModule { }\n}\n",
+		"src/PartyLogic.cs": "namespace MyMod.Logic {\n  public class PartyLogic {\n    public void Run() { }\n  }\n}\n",
 	}
 	for _, rel := range f.CorpusFiles {
 		body, ok := bodies[rel]
