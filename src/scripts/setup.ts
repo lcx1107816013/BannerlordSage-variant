@@ -1,5 +1,7 @@
+import { Database } from 'bun:sqlite'
 import { stat } from 'node:fs/promises'
-import { basename, relative } from 'node:path'
+import { readdir } from 'node:fs/promises'
+import { basename, join, relative } from 'node:path'
 import { availableParallelism } from 'node:os'
 import {
   clearDirectory,
@@ -263,11 +265,28 @@ export async function runSetup(args = process.argv.slice(2)): Promise<{ runtimeC
 
   if (cli.reindex) {
     const dbExists = await fileExists(gamePaths.dbPath)
-    const hasCsharpIndex =
+    // ★ `hasCsharpIndex` answers "do the tables exist". That is NOT the question
+    // the rebuild decision needs answered. Widening dll-scope to `official` left
+    // 12131 new .cs files on disk while every table existed, so this flag said
+    // "fine" and setup printed "Skipping SQLite rebuild because the indexed inputs
+    // are unchanged." The index then served 5203 types where 19188 were available.
+    // The staleness check below compares the index against the DISK.
+    const hasCsharpTables =
       dbExists &&
       ['csharp_types', 'csharp_methods', 'csharp_files', 'source_localization_entries'].every(tableName =>
         databaseHasTable(gamePaths.dbPath, tableName)
       )
+    const csharpStaleness = await csharpIndexIsStale({
+      sourcePath: gamePaths.sourcePath,
+      dbPath: gamePaths.dbPath,
+    })
+    const hasCsharpIndex = hasCsharpTables && !csharpStaleness.stale
+    if (hasCsharpTables && csharpStaleness.stale) {
+      console.log(
+        `C# index is stale (${csharpStaleness.reason}): ${csharpStaleness.unindexed} unindexed, ` +
+          `${csharpStaleness.changed} changed, ${csharpStaleness.removed} removed source file(s).`
+      )
+    }
     const hasXmlIndex =
       dbExists &&
       [
@@ -730,4 +749,145 @@ function formatCliError(prefix: string, error: unknown): string {
 function isSqliteBusyError(error: unknown): boolean {
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error)
   return /SQLITE_BUSY|database is locked/i.test(text)
+}
+
+/** What the staleness comparison found. Exported for tests and for logging. */
+export type CsharpStaleness = {
+  stale: boolean
+  /** why: 'no-index' | 'unindexed' | 'changed' | 'removed' | 'fresh' */
+  reason: string
+  /** .cs files on disk that the index has no row for */
+  unindexed: number
+  /** files whose size differs from the recorded size */
+  changed: number
+  /** indexed files that no longer exist on disk */
+  removed: number
+  /** total .cs files found on disk */
+  onDisk: number
+  /** rows in csharp_files */
+  indexed: number
+}
+
+/**
+ * Decide whether the C# index still describes the Source tree on disk.
+ *
+ * WHY THIS IS NOT "do the tables exist"
+ * -------------------------------------
+ * `hasCsharpIndex` used to be exactly that, and it made `--dll-scope official`
+ * silently useless. The sequence was:
+ *
+ *   1. run 1 decompiles 167 DLLs into assets/Source; the tables are created but
+ *      the index build dies on the `$indexedAt` reference error (see
+ *      index-csharp.ts), leaving the tables present and nearly empty.
+ *   2. run 2 finds 167 DLLs already decompiled, so `decompiledDlls.length === 0`.
+ *   3. The tables exist ⇒ `hasCsharpIndex` is true ⇒ setup prints
+ *      "Skipping SQLite rebuild because the indexed inputs are unchanged."
+ *   4. The index keeps serving 5203 types while 16230 .cs files, 19188 types and
+ *      275322 members sit on disk unindexed.
+ *
+ * Every individual check in that chain was "correct" and the result was wrong,
+ * which is the same failure mode as the rest of this project: a signal that can
+ * see its own shape but not the fact it is meant to report.
+ *
+ * This compares FILE LISTS. It is deliberately cheap (size + existence, no parse):
+ * the point is to notice that the tree and the index disagree, not to decide which
+ * file won.
+ */
+export async function csharpIndexIsStale(options: {
+  sourcePath: string
+  dbPath: string
+}): Promise<CsharpStaleness> {
+  const { sourcePath, dbPath } = options
+  const empty: CsharpStaleness = {
+    stale: true,
+    reason: 'no-index',
+    unindexed: 0,
+    changed: 0,
+    removed: 0,
+    onDisk: 0,
+    indexed: 0,
+  }
+
+  if (!(await fileExists(dbPath))) {
+    return empty
+  }
+
+  // Rows the index claims. A database without the table is treated as no index.
+  let recorded: Map<string, number>
+  try {
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const rows = db
+        .query('SELECT filePath, fileSize FROM csharp_files')
+        .all() as { filePath: string; fileSize: number }[]
+      recorded = new Map(rows.map(row => [normalizeRel(row.filePath), Number(row.fileSize)]))
+    } finally {
+      db.close()
+    }
+  } catch {
+    // No csharp_files table, or unreadable: either way the index cannot be trusted.
+    return empty
+  }
+
+  // Files the disk actually has.
+  const onDisk = new Map<string, number>()
+  const walk = async (dir: string): Promise<void> => {
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return // unreadable directory: contributes nothing, does not fail the check
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walk(full)
+        continue
+      }
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.cs')) {
+        continue
+      }
+      try {
+        const stats = await stat(full)
+        onDisk.set(normalizeRel(relative(sourcePath, full)), stats.size)
+      } catch {
+        // vanished mid-walk: ignore
+      }
+    }
+  }
+  await walk(sourcePath)
+
+  let unindexed = 0
+  let changed = 0
+  for (const [rel, size] of onDisk) {
+    const recordedSize = recorded.get(rel)
+    if (recordedSize === undefined) {
+      unindexed += 1
+    } else if (recordedSize !== size) {
+      changed += 1
+    }
+  }
+  let removed = 0
+  for (const rel of recorded.keys()) {
+    if (!onDisk.has(rel)) {
+      removed += 1
+    }
+  }
+
+  const result: CsharpStaleness = {
+    stale: true,
+    reason: unindexed > 0 ? 'unindexed' : changed > 0 ? 'changed' : removed > 0 ? 'removed' : 'fresh',
+    unindexed,
+    changed,
+    removed,
+    onDisk: onDisk.size,
+    indexed: recorded.size,
+  }
+  result.stale = result.reason !== 'fresh'
+  return result
+}
+
+/** One canonical form for stored and walked paths: forward slashes, no .\/ prefix. */
+function normalizeRel(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '')
 }

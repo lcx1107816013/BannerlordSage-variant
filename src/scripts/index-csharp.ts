@@ -475,7 +475,22 @@ function applyPayload(
         $filePath: file.relativePath,
         $fileSize: file.size,
         $fileMtimeMs: file.mtimeMs,
-        $indexedAt,
+        // ★ `$indexedAt: indexedAt`, NOT the shorthand `$indexedAt`.
+        //
+        // The shorthand reads a variable named `$indexedAt`, which does not exist —
+        // the variable is `indexedAt`. It threw `ReferenceError: $indexedAt is not
+        // defined` and aborted the whole index build.
+        //
+        // WHY IT SURVIVED UNTIL NOW: this loop only runs when `changedFiles` is
+        // non-empty. On an already-built index with no source changes it never
+        // executed, so the reference error never fired. Widening dll-scope from
+        // `core` to `official` made 167 DLLs new, the loop ran for the first time,
+        // and setup died at the last step.
+        //
+        // This is a REGRESSION FROM THE REWRITE, not an upstream defect: upstream
+        // (8311c9a:275) writes `$indexedAt: indexedAt`. docs/progress-report called
+        // it "upstream leftover" — that attribution was wrong.
+        $indexedAt: indexedAt,
       })
     }
   })
