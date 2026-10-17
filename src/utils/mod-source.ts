@@ -8,6 +8,7 @@
  * same cache regardless of path casing or separator style.
  */
 import { createHash } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { distPath } from './env'
@@ -66,7 +67,19 @@ export function resolveModSourceDir(candidate?: string): string {
 }
 
 /** Full workspace resolution: validate the root, pick the effective source
- * root, create the cache directory. */
+ * root, create the cache directory, and mark it as ours.
+ *
+ * ★ THE MARKER IS WRITTEN HERE, ON PURPOSE.
+ *
+ * This is the only place a workspace directory is created, so this is the only place
+ * that can honestly say "this cache was built by this code". Writing it elsewhere
+ * would mean a workspace could exist without a mark, which is the 'unknown' state —
+ * the one that must never be deletable. Adding the mark here means every cache this
+ * build creates is self-describing from its first byte.
+ *
+ * The write is best-effort: a failure means the workspace stays 'unknown' (i.e.
+ * protected from deletion), which is the safe direction. Losing the marker must not
+ * stop the caller from indexing. */
 export async function resolveModSourceWorkspace(candidate?: string): Promise<ModSourceWorkspace> {
   const workspaceRoot = resolveModSourceDir(candidate)
   const workspaceStats = await statOrNull(workspaceRoot)
@@ -78,6 +91,17 @@ export async function resolveModSourceWorkspace(candidate?: string): Promise<Mod
   const paths = getModSourcePaths(sourceRoot)
 
   await mkdir(paths.workspacePath, { recursive: true })
+
+  // F19: classify before claiming. If a NEWER build wrote this workspace, this code
+  // must not overwrite its marker (and must not treat the directory as its own).
+  const existing = classifyModSourceWorkspace(paths.workspacePath)
+  if (existing.kind !== 'stale-new') {
+    try {
+      writeModSourceWorkspaceMarker(paths.workspacePath, { sourceRoot })
+    } catch {
+      // leave it 'unknown': protected, still usable
+    }
+  }
 
   return {
     ...paths,
@@ -172,4 +196,150 @@ async function statOrNull(path: string) {
   } catch {
     return null
   }
+}
+
+// ── F19: a mechanical criterion for "is this cache ours to delete" ─────────
+//
+// THE HAZARD
+// ----------
+// `getModSourcePaths` derives the workspace directory from sha1(sourcePath), so a
+// given path always maps to the same folder. That is convenient, and it is also why
+// a naive "clean the cache" is dangerous: it can only see that
+// `dist/mod-sources/<id>/` exists, not whether the code that wrote it was this code.
+//
+// Measured on this machine (tools/_probe_workspace_reach.ts, 2026-10-18): 18 folders
+// hold a 3-column `csharp_files` (no `indexedAt`) written by an older build, 180 more
+// are empty leftovers. None of the 64 source paths this code can actually see hash to
+// one of those 18 — so the risk is structural but not currently reachable.
+//
+// That is precisely where a guard is cheap and a deletion is not. The marker is the
+// criterion F19 asked for: only a workspace carrying OUR mark may be treated as ours.
+//
+// THE THIRD STATE MATTERS MOST
+// ----------------------------
+// 'stale-new' is a workspace written by a NEWER build. Deleting it would destroy data
+// this code cannot even interpret. The first two states are the obvious ones; this is
+// the one that makes the guard actually safe.
+export const CURRENT_MOD_SOURCE_SCHEMA_VERSION = 2
+
+/** File name of the marker written into every workspace we build. */
+export const MOD_SOURCE_MARKER = 'workspace.json'
+
+export type ModSourceWorkspaceKind =
+  | 'current' // our marker, current version
+  | 'stale-old' // our marker, older version: safe to rebuild
+  | 'stale-new' // marker from a newer build: DO NOT TOUCH
+  | 'unknown' // no marker, unreadable marker, or no directory: DO NOT TOUCH
+
+export type ModSourceWorkspaceClass = {
+  kind: ModSourceWorkspaceKind
+  /** True only when this code may replace the directory's contents. */
+  deletable: boolean
+  /** Schema version recorded in the marker, when one could be read. */
+  schemaVersion?: number
+  /** Source root recorded in the marker, when one could be read. */
+  sourceRoot?: string
+  reason: string
+}
+
+/**
+ * Classify a workspace directory. Never throws: an unreadable directory or a
+ * malformed marker is 'unknown', because "I could not tell" must never be read as
+ * permission to delete.
+ */
+export function classifyModSourceWorkspace(workspacePath: string): ModSourceWorkspaceClass {
+  const markerPath = join(workspacePath, MOD_SOURCE_MARKER)
+
+  let raw: string
+  try {
+    raw = readFileSync(markerPath, 'utf8')
+  } catch {
+    return {
+      kind: 'unknown',
+      deletable: false,
+      reason: 'no workspace.json marker — this cache cannot be shown to be ours',
+    }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {
+      kind: 'unknown',
+      deletable: false,
+      reason: 'workspace.json is not valid JSON — cannot be shown to be ours',
+    }
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return {
+      kind: 'unknown',
+      deletable: false,
+      reason: 'workspace.json is not an object',
+    }
+  }
+
+  const record = parsed as { schemaVersion?: unknown; sourceRoot?: unknown }
+  const version = record.schemaVersion
+  if (typeof version !== 'number' || !Number.isFinite(version)) {
+    return {
+      kind: 'unknown',
+      deletable: false,
+      reason: 'workspace.json has no numeric schemaVersion',
+    }
+  }
+
+  const sourceRoot = typeof record.sourceRoot === 'string' ? record.sourceRoot : undefined
+
+  if (version === CURRENT_MOD_SOURCE_SCHEMA_VERSION) {
+    return {
+      kind: 'current',
+      deletable: true,
+      schemaVersion: version,
+      sourceRoot,
+      reason: `schema v${version}, current`,
+    }
+  }
+  if (version < CURRENT_MOD_SOURCE_SCHEMA_VERSION) {
+    return {
+      kind: 'stale-old',
+      deletable: true,
+      schemaVersion: version,
+      sourceRoot,
+      reason: `schema v${version} < ${CURRENT_MOD_SOURCE_SCHEMA_VERSION}: ours, out of date`,
+    }
+  }
+  return {
+    kind: 'stale-new',
+    deletable: false,
+    schemaVersion: version,
+    sourceRoot,
+    reason:
+      `schema v${version} > ${CURRENT_MOD_SOURCE_SCHEMA_VERSION}: written by a newer build, ` +
+      'this code cannot interpret it and must not replace it',
+  }
+}
+
+/**
+ * Write the marker for a workspace this build just created. Called wherever a
+ * workspace directory is created, so "ours" is a fact rather than an assumption.
+ */
+export function writeModSourceWorkspaceMarker(
+  workspacePath: string,
+  options: { sourceRoot: string; schemaVersion?: number },
+): void {
+  writeFileSync(
+    join(workspacePath, MOD_SOURCE_MARKER),
+    JSON.stringify(
+      {
+        schemaVersion: options.schemaVersion ?? CURRENT_MOD_SOURCE_SCHEMA_VERSION,
+        sourceRoot: options.sourceRoot,
+        writtenAt: new Date().toISOString(),
+        writtenBy: 'bannerscribe-archive',
+      },
+      null,
+      2,
+    ),
+    'utf8',
+  )
 }
