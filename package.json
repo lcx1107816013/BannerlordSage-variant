@@ -15,7 +15,7 @@
   "type": "module",
   "scripts": {
     "start": "bun run src/entrypoints/bannerlord-stdio.ts",
-    "test": "node tests/run-bun-test.mjs && node tests/run-checks.mjs",
+    "test": "node tests/run-bun-test.mjs && node tests/run-checks.mjs && node tests/run-e2e.mjs",
     "start:bannerlord": "bun run src/entrypoints/bannerlord-stdio.ts",
     "start:bannerlord:full": "bun run src/entrypoints/bannerlord-full-stdio.ts",
     "setup": "bun run src/scripts/setup.ts",
@@ -36,7 +36,8 @@
     "index:api-docs": "bun run src/scripts/index-api-docs.ts",
     "test:bun": "node tests/run-bun-test.mjs",
     "test:checks": "node tests/run-checks.mjs",
-    "test:all": "node tests/run-bun-test.mjs && node tests/run-checks.mjs"
+    "test:all": "node tests/run-bun-test.mjs && node tests/run-checks.mjs && node tests/run-e2e.mjs",
+    "test:e2e": "node tests/run-e2e.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
