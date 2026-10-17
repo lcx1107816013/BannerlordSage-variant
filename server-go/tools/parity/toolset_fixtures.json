@@ -22,82 +22,82 @@
     {
       "input": null,
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "   ",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "query-first",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "QUERY-FIRST",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "  query-first  ",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "Query-First",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "full",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "FULL",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "full ",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "queryfirst",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "query_first",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "query-first extra",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     },
     {
       "input": "query-first　",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "﻿query-first",
       "mode": "query-first",
-      "toolCount": 43
+      "toolCount": 44
     },
     {
       "input": "query-first",
       "mode": "full",
-      "toolCount": 50
+      "toolCount": 51
     }
   ],
   "queryFirstTools": [
@@ -143,7 +143,8 @@
     "ba_index_assets",
     "ba_find_asset",
     "ba_check_mod_conflicts",
-    "ba_bridge_query"
+    "ba_bridge_query",
+    "ba_lexicon_query"
   ],
   "authoringTools": [
     "ba_create_mod_workspace",

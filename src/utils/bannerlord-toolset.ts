@@ -51,6 +51,10 @@ export const QUERY_FIRST_BANNERLORD_TOOL_NAMES = [
   'find_asset',
   'check_mod_conflicts',
   'bridge_query',
+  // Archive -> Lexicon. The last missing edge: Archive resolves a {=token} to its
+  // source text, Lexicon reports the translation side of that same string. Read-only
+  // and cheap, so it belongs in the default tier for the same reason the asset tools do.
+  'lexicon_query',
 ].map(archiveToolName)
 
 export const AUTHORING_BANNERLORD_TOOL_NAMES = [

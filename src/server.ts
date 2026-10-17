@@ -17,6 +17,7 @@ import { indexAssetsTool } from './tools/index-assets'
 import { findAssetTool } from './tools/find-asset'
 import { checkModConflicts } from './tools/check-mod-conflicts'
 import { bridgeQuery } from './tools/bridge-query'
+import { invokeLexicon } from './utils/lexicon-client'
 import { listDirectory } from './tools/list-directory'
 import { listModDirectory } from './tools/list-mod-directory'
 import { modSourceStatus } from './tools/mod-source-status'
@@ -604,4 +605,53 @@ server.registerTool(
     },
   },
   async ({ action, bridgeDir, flags }) => await bridgeQuery({ action, bridgeDir, flags }),
+)
+
+// Archive -> Lexicon: the last missing edge in the toolchain.
+//
+// Archive holds the AUTHORITATIVE text (XML, decompiled C#, game data). Lexicon holds
+// the TRANSLATIONS. A token like {=P1rL28RT}Sumpter Horse can be resolved HERE to its
+// English string, but whether somebody translated it, into which language, and whether
+// that translation is still current lives THERE.
+//
+// Both directions of every other edge already existed (Archive->Bridge,
+// Bridge->Archive, Lexicon->Archive). This one did not, so the question a translator
+// actually asks -- "this token, in this module: does a translation exist?" -- required
+// calling two MCP servers and joining the answers by hand.
+//
+// Read-only on purpose: the closed action list is the CLI's own read commands
+// (`language`, `info`). `generate`, `translate`, `external` and `package` write to a
+// module directory and are deliberately not reachable from here.
+server.registerTool(
+  archiveToolName('lexicon_query'),
+  {
+    title: 'Lexicon Query',
+    description:
+      'Ask the translation toolkit which languages it supports and what the local modules look like, by invoking the Lexicon CLI. Pairs with resolve_localization: that resolves a {=token} to its source text, this reports the translation side of the same string.',
+    inputSchema: {
+      action: z.string().describe('One of: language, info.'),
+      module: z.string().optional().describe('Module name for `info`, e.g. "Harmony". `info` PROMPTS without it and cannot run headless.'),
+      lexiconDir: z.string().optional().describe('Lexicon repo root; defaults to BANNERSAGE_LEXICON_DIR.'),
+      flags: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional()
+        .describe('Optional flags, forwarded as --name value.'),
+    },
+    annotations: {
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ action, module: moduleName, lexiconDir, flags }) => {
+    const merged: Record<string, string | number | boolean> = { ...(flags ?? {}) };
+    if (moduleName) merged.module = moduleName;
+    const result = await invokeLexicon(action, { lexiconDir, flags: merged });
+    return {
+      content: [{
+        type: 'text' as const,
+        text: result.error
+          ? `${result.action}: ${result.error}\n${result.stdout}${result.stderr}`.trim()
+          : result.stdout,
+      }],
+      ...(result.exitCode === 0 ? {} : { isError: true }),
+    };
+  },
 )
