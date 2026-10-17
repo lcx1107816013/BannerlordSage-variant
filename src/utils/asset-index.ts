@@ -19,6 +19,7 @@
 //   Merging them would hide the fact that a texture found loose is not necessarily the one
 //   the game loads, so the report keeps them in separate lists.
 
+import type { Stats } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import { readdir, stat } from 'node:fs/promises'
 
@@ -85,6 +86,7 @@ export async function indexAssets(
   const limit = options.limit ?? 5000
   const entries: AssetEntry[] = []
   const skippedDirectories: string[] = []
+  const brokenLinks: string[] = []
   let truncated = false
 
   const startDirs: Array<{ dir: string; moduleId: string }> = []
@@ -145,7 +147,41 @@ export async function indexAssets(
       if (truncated) return
       const full = join(dir, dirent.name)
 
-      if (dirent.isDirectory()) {
+      // ★ VORTEX DEPLOYS BY SYMLINK, AND `dirent.isFile()` IS FALSE FOR A SYMLINK.
+      //
+      // Measured on a real install: `Modules\BannerFix\Assets\a1_geo.tpac` has
+      // `Attributes: Archive, ReparsePoint`, `Length: 0`, `LinkType: SymbolicLink`, pointing into
+      // `%APPDATA%\Vortex\...`. Node's Dirent reports such an entry as NEITHER a file NOR a
+      // directory - `isFile()`, `isDirectory()` and `isSymbolicLink()` are all checks against the
+      // link itself, and the first two are false for it.
+      //
+      // The original code did `if (!dirent.isFile()) continue`, so every symlinked asset was
+      // silently dropped. On that install it lost 9 of 12 art-bearing modules entirely while the
+      // aggregate count still looked healthy (1628 entries) - because the base game's own packages
+      // are real files and carried the number.
+      //
+      // This is the SAME blind spot the project's `walkFiles` fix addressed for the doctor (39
+      // false positives from invisible Vortex installs). Re-introducing it in new code is exactly
+      // the kind of regression a corpus built from assumptions cannot catch: my test corpus used
+      // writeFileSync, which produces real files.
+      //
+      // `stat` follows the link, which is what we want here: the deployed mod's content IS the
+      // asset. A broken link makes stat throw, and it is recorded rather than dropped silently.
+      // ★ `STAT` MUST COME FIRST, AND THE FIRST ATTEMPT GOT THIS BACKWARDS.
+      //
+      // The rewrite classified the extension before following the link, which meant a DIRECTORY
+      // whose name has no asset extension (`GUI`, `Assets`, `ModuleData`) hit `if (!kind) continue`
+      // and its entire subtree was never walked. Measured: the install went from 1628 entries to
+      // 1. Directories have to be resolved before anything is decided about their names.
+      let followed: Stats
+      try {
+        followed = await stat(full)
+      } catch {
+        brokenLinks.push(full)
+        continue
+      }
+
+      if (followed.isDirectory()) {
         if (PRUNE.has(dirent.name)) {
           skippedDirectories.push(full)
           continue
@@ -153,8 +189,8 @@ export async function indexAssets(
         await walk(full, moduleId)
         continue
       }
+      if (!followed.isFile()) continue
 
-      if (!dirent.isFile()) continue
       const kind = classify(extname(dirent.name))
       if (!kind) continue
 
@@ -165,7 +201,9 @@ export async function indexAssets(
 
       let sizeBytes = 0
       try {
-        sizeBytes = (await stat(full)).size
+        // The link's own size is 0; the target's size is the useful number, and `stat` already
+        // resolved it. Reading it from `followed` avoids a second syscall.
+        sizeBytes = followed.size
       } catch {
         /* size is advisory */
       }
@@ -196,7 +234,7 @@ export async function indexAssets(
   const counts = { texture: 0, model: 0, package: 0 } as Record<AssetKind, number>
   for (const entry of entries) counts[entry.kind]++
 
-  return { root: gameDir, entries, counts, skippedDirectories, truncated }
+  return { root: gameDir, entries, counts, skippedDirectories, brokenLinks, truncated }
 }
 
 /** Case-insensitive substring match over filename and relative path. */
